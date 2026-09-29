@@ -20,6 +20,8 @@ nonisolated struct PreviewSettings: Sendable, Equatable {
     var useEmbeddedPreviews = true
     /// Disk cache limit in GB; 0 = unlimited. Least recently used previews are pruned first.
     var maxCacheGB = 10
+    /// Develop: keep the last N full-quality renders ready (`RecentRenders`); 0 = off.
+    var recentRenderCount = RecentRenders.defaultLimit
 
     static let standardSizes = [1024, 1440, 2048, 2560, 2880, 3840]
     static let thumbnailSizes = [256, 384, 512]
@@ -32,6 +34,7 @@ nonisolated struct PreviewSettings: Sendable, Equatable {
         static let quality = "previews.quality"
         static let useEmbeddedPreviews = "previews.useEmbeddedPreviews"
         static let maxCacheGB = "previews.maxCacheGB"
+        static let recentRenderCount = "previews.recentRenderCount"
     }
 
     static func load(from defaults: UserDefaults = .standard) -> PreviewSettings {
@@ -41,6 +44,7 @@ nonisolated struct PreviewSettings: Sendable, Equatable {
         if let v = defaults.object(forKey: Keys.quality) as? Double, v > 0, v <= 1 { s.quality = v }
         if let v = defaults.object(forKey: Keys.useEmbeddedPreviews) as? Bool { s.useEmbeddedPreviews = v }
         if let v = defaults.object(forKey: Keys.maxCacheGB) as? Int, v >= 0 { s.maxCacheGB = v }
+        if let v = defaults.object(forKey: Keys.recentRenderCount) as? Int { s.recentRenderCount = min(max(v, 0), RecentRenders.maxLimit) }
         return s
     }
 

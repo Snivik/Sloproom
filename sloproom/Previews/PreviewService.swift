@@ -40,6 +40,12 @@ nonisolated struct PreviewResult: Sendable {
     var isOffline = false
 }
 
+/// Request counters (memory hit / disk read / generated), for diagnostics.
+nonisolated struct PreviewStats: Sendable {
+    struct Counts: Sendable { var memoryHits = 0, diskReads = 0, generated = 0, failed = 0, writeFailures = 0 }
+    var byLevel: [PreviewLevel: Counts] = [:]
+}
+
 nonisolated final class PreviewService: @unchecked Sendable {
     static let shared = PreviewService()
 
@@ -57,7 +63,13 @@ nonisolated final class PreviewService: @unchecked Sendable {
     private var offlineIDs: Set<Int64> = []
     private var editDebounce: DispatchWorkItem?
 
-    private let cache = NSCache<NSString, CGImage>()
+    /// Decoded previews, one cache per level so large standard previews never push the grid's
+    /// thumbnails out (scrolling back must not flash placeholders). Limits scale with RAM.
+    private let thumbnailCache = NSCache<NSString, CGImage>()
+    private let standardCache = NSCache<NSString, CGImage>()
+    private func cache(_ level: PreviewLevel) -> NSCache<NSString, CGImage> {
+        level == .thumbnail ? thumbnailCache : standardCache
+    }
     /// Disk reads (fast, IO bound).
     private let ioLane = PreviewLane<CGImage?>(name: "Sloproom.Previews.io", workers: 4)
     /// Generation (embedded extraction or full render).
@@ -67,14 +79,26 @@ nonisolated final class PreviewService: @unchecked Sendable {
     private let renderSlots = DispatchSemaphore(value: 2)
     private let maintenanceQueue = DispatchQueue(label: "Sloproom.Previews.maintenance", qos: .utility)
     private var writesSinceCheck = 0
+    private var _stats = PreviewStats()
 
     init() {
-        cache.totalCostLimit = 512 * 1024 * 1024 // bytes of decoded pixels
+        // Bytes of decoded pixels. A 512 px thumbnail ≈ 0.7 MB, a 2048 px standard preview ≈ 11 MB.
+        // 48 GB RAM → 768 MB (≈ 1,100 thumbnails) + 512 MB (≈ 45 standard previews).
+        let ram = Int(clamping: ProcessInfo.processInfo.physicalMemory)
+        let mb = 1024 * 1024
+        thumbnailCache.totalCostLimit = min(max(ram / 64, 256 * mb), 768 * mb)
+        standardCache.totalCostLimit = min(max(ram / 96, 192 * mb), 512 * mb)
+        thumbnailCache.name = "Sloproom.Previews.thumbnails"
+        standardCache.name = "Sloproom.Previews.standard"
     }
+
+    /// Memory cache limits in bytes (diagnostics).
+    var memoryLimits: (thumbnail: Int, standard: Int) { (thumbnailCache.totalCostLimit, standardCache.totalCostLimit) }
 
     /// Must be called once at startup (security-scoped access to photo files, disk cache location).
     func configure(catalog: Catalog) {
         let disk = PreviewDiskCache(directory: catalog.cacheDirectory("Previews"))
+        RecentRenders.shared.configure(directory: disk.recentDirectory, limit: settings.recentRenderCount)
         lock.lock()
         _catalog = catalog
         _disk = disk
@@ -118,9 +142,10 @@ nonisolated final class PreviewService: @unchecked Sendable {
         if looksChanged { epoch += 1 }
         lock.unlock()
         if looksChanged {
-            cache.removeAllObjects()
+            purgePreviewMemory()
             PreviewJobs.notifyAllChanged()
         }
+        if old.recentRenderCount != new.recentRenderCount { RecentRenders.shared.limit = new.recentRenderCount }
         if old.maxCacheGB != new.maxCacheGB { maintenanceQueue.async { [weak self] in self?.pruneIfNeeded() } }
     }
 
@@ -128,7 +153,7 @@ nonisolated final class PreviewService: @unchecked Sendable {
 
     /// Memory-cache hit only; never blocks. Use to avoid a placeholder flash.
     func cachedImage(for photo: Photo, level: PreviewLevel) -> CGImage? {
-        cache.object(forKey: memoryKey(photo, level) as NSString)
+        cache(level).object(forKey: memoryKey(photo, level) as NSString)
     }
 
     /// Returns a preview, generating it off the calling thread if needed. nil if unavailable.
@@ -140,7 +165,7 @@ nonisolated final class PreviewService: @unchecked Sendable {
     /// (the result is then empty).
     func load(_ photo: Photo, level: PreviewLevel, priority: PreviewPriority = .visible) async -> PreviewResult {
         let key = memoryKey(photo, level)
-        if let hit = cache.object(forKey: key as NSString) { return PreviewResult(image: hit) }
+        if let hit = cache(level).object(forKey: key as NSString) { count(level, \.memoryHits); return PreviewResult(image: hit) }
         if Task.isCancelled { return PreviewResult() }
 
         let s = settings
@@ -150,7 +175,8 @@ nonisolated final class PreviewService: @unchecked Sendable {
                 disk.read(photoID: photo.id, name: name)
             }
             if let image = fromDisk ?? nil {
-                cache.setObject(image, forKey: key as NSString, cost: Self.cost(image))
+                count(level, \.diskReads)
+                cache(level).setObject(image, forKey: key as NSString, cost: Self.cost(image))
                 return PreviewResult(image: image)
             }
         }
@@ -205,20 +231,28 @@ nonisolated final class PreviewService: @unchecked Sendable {
         for id in photoIDs { generations[id, default: 0] += 1 }
         lock.unlock()
         disk?.remove(photoIDs: photoIDs)
+        RecentRenders.shared.remove(photoIDs: photoIDs)
         PreviewJobs.notifyChanged(Set(photoIDs))
     }
 
     /// Deletes every cached preview ("Clean Cache").
     func discardAll() {
         lock.lock(); epoch += 1; lock.unlock()
-        cache.removeAllObjects()
+        purgePreviewMemory()
         disk?.removeAll()
+        RecentRenders.shared.removeAll()
         PreviewJobs.notifyAllChanged()
     }
 
     /// Drops decoded images from memory only (disk cache untouched).
     func purgeMemoryCache() {
-        cache.removeAllObjects()
+        purgePreviewMemory()
+        RecentRenders.shared.purgeMemory()
+    }
+
+    private func purgePreviewMemory() {
+        thumbnailCache.removeAllObjects()
+        standardCache.removeAllObjects()
     }
 
     /// Bytes used by the disk cache (scans; call off the main thread).
@@ -227,10 +261,34 @@ nonisolated final class PreviewService: @unchecked Sendable {
         disk?.computeUsage() ?? 0
     }
 
+    /// (photos, bytes) of the recent Develop renders on disk.
+    @concurrent
+    func recentRendersUsage() async -> (count: Int, bytes: Int64) {
+        RecentRenders.shared.diskUsage
+    }
+
     /// Prunes least recently used previews if the cache exceeds the configured limit.
     func pruneIfNeeded() {
         guard let disk, let max = settings.maxCacheBytes else { return }
         if (disk.approximateUsage ?? disk.computeUsage()) > max { disk.prune(maxBytes: max) }
+    }
+
+    // MARK: - Statistics (DevScript / diagnostics)
+
+    /// Counters since launch (or `resetStats()`), per level.
+    var stats: [PreviewLevel: PreviewStats.Counts] {
+        lock.lock(); defer { lock.unlock() }
+        return _stats.byLevel
+    }
+
+    func resetStats() {
+        lock.lock(); _stats = PreviewStats(); lock.unlock()
+    }
+
+    private func count(_ level: PreviewLevel, _ field: WritableKeyPath<PreviewStats.Counts, Int>) {
+        lock.lock()
+        _stats.byLevel[level, default: .init()][keyPath: field] += 1
+        lock.unlock()
     }
 
     // MARK: - Keys
@@ -262,19 +320,20 @@ nonisolated final class PreviewService: @unchecked Sendable {
         let name = diskName(photo, level, s)
         // Another request (or a build job) may have written it meanwhile.
         if let disk, let image = disk.read(photoID: photo.id, name: name) {
-            if let memoryKey { cache.setObject(image, forKey: memoryKey as NSString, cost: Self.cost(image)) }
+            if let memoryKey { cache(level).setObject(image, forKey: memoryKey as NSString, cost: Self.cost(image)) }
             return PreviewResult(image: image)
         }
 
         let image = generate(photo, level: level, settings: s, disk: disk)
+        count(level, image == nil ? \.failed : \.generated)
         guard let image else {
             let offline = !isReadable(photo)
             if offline, photo.id != 0 { lock.lock(); offlineIDs.insert(photo.id); lock.unlock() }
             return PreviewResult(image: disk?.readAnyVersion(photoID: photo.id, level: level), isOffline: offline)
         }
-        if let memoryKey { cache.setObject(image, forKey: memoryKey as NSString, cost: Self.cost(image)) }
+        if let memoryKey { cache(level).setObject(image, forKey: memoryKey as NSString, cost: Self.cost(image)) }
         if let disk {
-            disk.write(image, photoID: photo.id, level: level, name: name, quality: s.quality)
+            if !disk.write(image, photoID: photo.id, level: level, name: name, quality: s.quality) { count(level, \.writeFailures) }
             noteWrite()
         }
         return PreviewResult(image: image)
@@ -355,6 +414,8 @@ nonisolated final class PreviewService: @unchecked Sendable {
         pendingEdited.removeAll()
         lock.unlock()
         guard let catalog, let disk, let photos = try? catalog.photos(ids: ids) else { return }
+        // Recent Develop renders of photos edited elsewhere (e.g. Paste Settings) are stale now.
+        RecentRenders.shared.dropStale(photos.map { ($0.id, RecentRenderKey.settingsHash($0.editSettings)) })
         let s = settings
         for photo in photos {
             let name = diskName(photo, .thumbnail, s)

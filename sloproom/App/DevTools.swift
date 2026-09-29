@@ -161,6 +161,7 @@ enum DevScript {
                 case "quit": NSApp.terminate(nil)
                 case let c where c.hasPrefix("import"): ImportDevCommands.run(c, arg: arg, model: model)
                 case "export": await ExportDevScript.run(arg, model: model)   // see Export/UI/ExportDevScript.swift
+                case "rr": await RecentRendersDevScript.run(arg, model: model)   // see Previews/UI/RecentRendersDevScript.swift
                 case let c where IntegrationDevScript.commands.contains(c): IntegrationDevScript.run(c, arg, model: model)
                 case let c where MaskDevScript.commands.contains(c): MaskDevScript.run(c, arg, session: model.developSession)
                 case "key", "type", "click", "dclick", "dump", "menus", "action", "row", "whichmenu": FoldersDevScript.run(parts[0], arg, model: model)

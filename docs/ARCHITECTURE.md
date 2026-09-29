@@ -35,7 +35,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Library/*` | main window, grid, cells, filmstrip, sidebar; `ThumbnailView` (the only preview loader) |
 | `Library/Sidebar/*` | folder management (create/rename/delete/move/reorder, DnD, context menus), sidebar state, folders DevScript (key/click synthesis) |
 | `Library/Flags/*` | flag actions (auto-advance), grid filter bar, `LibraryKeyMonitor` (D, ⌘A) |
-| `Previews/*` (+ `Previews/UI/*`) | preview service, disk cache, lanes, build jobs, settings (+ settings view, Library > Previews menu, toolbar activity) |
+| `Previews/*` (+ `Previews/UI/*`) | preview service, disk cache, lanes, build jobs, settings, recent Develop renders + neighbour prefetch (+ settings view, Library > Previews menu, toolbar activity, `rr` DevScript) |
 | `Develop/EditSettings.swift`, `GeometryMath.swift`, `CanvasGeometry.swift`, `RenderPipeline.swift` | edit model, geometry maps, render pipeline |
 | `Develop/Stages/*` | the 7 render stages + `LocalAdjustmentRenderer` |
 | `Develop/Adjustments/*`, `Develop/Kernels/*` | adjustment ops, Metal CI kernels, histogram, WB estimator, baseline exposure; `Adjustments/UI/*` clipboard, WB picker, histogram view, DevScript |
@@ -453,6 +453,31 @@ revisions. UI: `Previews/UI/` — `PreviewSettingsView` (Settings > Previews tab
 sheet), `PreviewCommands` (Library > Previews ▸), `PreviewActivityView` (main window toolbar; empty
 when idle). Importers queue thumbnails with `build(photoIDs:levels: [.thumbnail])`. Offline
 originals are remembered and retried when roots change (see Change notifications). `Library/ThumbnailView` is the only view that loads previews (grid + filmstrip).
+
+Memory: one NSCache per level (thumbnails ≤ 768 MB, standard ≤ 512 MB, scaled down on machines
+with < 48 GB RAM), so standard previews never push the grid's thumbnails out; ~1,000 thumbnails
+stay decoded (scrolling back shows no placeholders). `PreviewService.stats` / `resetStats()` count
+disk reads / generations per level (DevScript `rr stats`).
+
+### Recent Develop renders (`Previews/RecentRenders*.swift`)
+
+`RecentRenders.shared` keeps the last N full-quality Develop renders (Settings > Previews >
+Develop "Keep last rendered photos", `previews.recentRenderCount`, default 100, 0 = off):
+`<catalogDirectory>/Previews/Recent/<id>_<settingsHash>_<boxW>x<boxH>.jpg` (JPEG q 0.9, Display P3,
+at canvas size, ≤ 3200 px) + an LRU of ≤ 16 decoded images / 400 MB. Key = photo id + FNV hash of
+(EditSettings JSON, build signature) + the canvas pixel box; one file per photo; LRU by file date;
+`Recent/.build` marks the build (another build deletes all). Excluded from the preview cache's
+size/pruning; removed by Clean Cache (`discardAll`) and `discard(photoIDs:)`; stale renders of photos
+edited elsewhere are dropped after `.photosUpdated`. `purgeAll()` resets all in-memory state
+(memory, pending writes, index, prefetch) for an in-process catalog replacement.
+
+- `DevelopSession` hook: on open it shows the recent render of the current settings instantly
+  (memory, else disk off-main ≈ 5–10 ms), `imageOrigin == .recent`; if it was rendered at the current
+  canvas size the first pipeline render is skipped (`renderedKey` set). Every final crop-applied
+  render of the current settings is stored (memory now, disk write coalesced ~0.5 s).
+- `RecentRendersPrefetch.shared.developOpened(index:in:)` (called by `AppModel.openDevelopSession`):
+  next / previous / next-but-one photo → recent render into memory, else standard preview; the
+  next photo's RAW is read ahead (background QoS) into the OS file cache.
 
 ## Import
 

@@ -5,6 +5,8 @@
 //  Preview settings (Settings window, and `SheetKind.previewSettings` sheet).
 //  Values live in UserDefaults (`PreviewSettings.Keys`); every change is pushed to
 //  `PreviewService.reloadSettings()` (size/quality changes regenerate previews lazily).
+//  "Develop" section: how many recent Develop renders are kept (`RecentRenders`, 0 = off) and
+//  their size on disk; "Clean Cache" deletes them too.
 //
 
 import SwiftUI
@@ -21,8 +23,10 @@ struct PreviewSettingsView: View {
     @AppStorage(PreviewSettings.Keys.quality) private var quality = PreviewSettings().quality
     @AppStorage(PreviewSettings.Keys.useEmbeddedPreviews) private var useEmbedded = PreviewSettings().useEmbeddedPreviews
     @AppStorage(PreviewSettings.Keys.maxCacheGB) private var maxCacheGB = PreviewSettings().maxCacheGB
+    @AppStorage(PreviewSettings.Keys.recentRenderCount) private var recentRenderCount = PreviewSettings().recentRenderCount
 
     @State private var usage: Int64?
+    @State private var recentUsage: (count: Int, bytes: Int64)?
     @State private var confirmClean = false
     @State private var confirmRegenerate = false
     private var jobs: PreviewJobs { PreviewJobs.shared }
@@ -41,6 +45,29 @@ struct PreviewSettingsView: View {
                         ForEach(PreviewSettings.qualities, id: \.value) { Text($0.title).tag($0.value) }
                     }
                     Toggle("Use embedded camera previews for unedited photos", isOn: $useEmbedded)
+                }
+                Section {
+                    LabeledContent("Keep last rendered photos") {
+                        HStack(spacing: 6) {
+                            TextField("", value: recentCountBinding, format: .number)
+                                .labelsHidden()
+                                .multilineTextAlignment(.trailing)
+                                .monospacedDigit()
+                                .frame(width: 60)
+                            Stepper("", value: recentCountBinding, in: 0...RecentRenders.maxLimit, step: 10)
+                                .labelsHidden()
+                        }
+                    }
+                    LabeledContent("Size on disk") {
+                        Text(recentUsageText).monospacedDigit()
+                    }
+                } header: {
+                    Text("Develop")
+                } footer: {
+                    Text(recentRenderCount == 0
+                         ? "Off: photos are rendered from the original every time they are opened in Develop."
+                         : "The last \(recentRenderCount) photos rendered in Develop are kept ready, so going back to them shows a sharp image instantly instead of re-reading the original. 0 turns this off.")
+                        .foregroundStyle(.secondary)
                 }
                 Section {
                     LabeledContent("Size on disk") {
@@ -82,6 +109,7 @@ struct PreviewSettingsView: View {
         .onChange(of: quality) { settingsChanged() }
         .onChange(of: useEmbedded) { settingsChanged() }
         .onChange(of: maxCacheGB) { settingsChanged(); refreshUsage(after: 0.5) }
+        .onChange(of: recentRenderCount) { settingsChanged(); refreshUsage(after: 0.5) }
         // Refresh the size while jobs run / after cleaning.
         .task(id: "\(jobs.done / 50)-\(jobs.isBusy)-\(jobs.epoch)") { await measure() }
         .confirmationDialog("Delete all cached previews?", isPresented: $confirmClean) {
@@ -90,7 +118,7 @@ struct PreviewSettingsView: View {
                 refreshUsage(after: 0.2)
             }
         } message: {
-            Text("Previews are regenerated when photos are shown again.")
+            Text("Previews and recent Develop renders are regenerated when photos are shown again.")
         }
         .confirmationDialog("Regenerate all previews?", isPresented: $confirmRegenerate) {
             Button("Regenerate All") { jobs.regenerateAll() }
@@ -105,6 +133,19 @@ struct PreviewSettingsView: View {
 
     private func measure() async {
         usage = await PreviewService.shared.diskUsage()
+        recentUsage = await PreviewService.shared.recentRendersUsage()
+    }
+
+    /// Clamped 0…max (the text field accepts any number).
+    private var recentCountBinding: Binding<Int> {
+        Binding(get: { recentRenderCount },
+                set: { recentRenderCount = min(max($0, 0), RecentRenders.maxLimit) })
+    }
+
+    private var recentUsageText: String {
+        guard let recentUsage else { return "Calculating…" }
+        let bytes = ByteCountFormatter.string(fromByteCount: recentUsage.bytes, countStyle: .file)
+        return "\(bytes) (\(recentUsage.count) \(recentUsage.count == 1 ? "photo" : "photos"))"
     }
 
     private func refreshUsage(after seconds: Double) {

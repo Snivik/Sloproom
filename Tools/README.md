@@ -76,6 +76,11 @@ Snapshots must also be written inside the container. View them with the Read too
   `activate`, `menu <Top>/<Item>[/<Sub>]` (performs a real menu item), `folder new <n>[ in <parent>] |
   rename <n> to <m> | add <n> | move <n> | remove | delete <n>`, `selectall`, `focus <i>`, `devdump`
   (develop session state), `snapwin <png>` (newest window, e.g. Settings), `keqv <letter>`.
+  Develop latency / preview caches (`Previews/UI/RecentRendersDevScript.swift`): `rr time next|prev|<index>`
+  (ms until first image / sharp image / source loaded / final render), `rr stats`, `rr reset`, `rr dump`,
+  `rr sheet` / `rr closesheet` (preview settings sheet), `rr limit <n>|reset`, `rr clean`.
+  Launch args `-previews.recentRenderCount '<integer>0</integer>'` / `-previews.developPrefetch NO` switch
+  the features off for before/after timings.
   Export sheet (`Export/UI/ExportDevScript.swift`): `export sheet | dest <folder> | quality <n> | run |
   wait | cancel | snapshot <png> | close | menustate | dump`, e.g.
   `activate; selectall; export sheet; export dest $C/out; export quality 70; export run; export wait; export snapshot $C/sheet.png; export close; quit`.
@@ -114,6 +119,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `develop_check` | – | `[dng] [out-dir] [only-name-substring]` |
 | `masks_check` | `sloproom/Develop/DevelopSession.swift sloproom/Develop/Masking/UI/{MaskInteraction,MaskToolState,DevelopSession+Masks}.swift sloproom/Develop/Crop/{DevelopSession+Crop,CropMath,Catalog+CropPresets}.swift` | `[dng] [out-dir]` |
 | `crop_check` | `sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift` | `[photo-dir] [out-dir]` |
+| `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 
 e.g. `Tools/harness.sh /private/tmp/claude-501/<you>/crop_check Tools/crop_check.swift sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift`
