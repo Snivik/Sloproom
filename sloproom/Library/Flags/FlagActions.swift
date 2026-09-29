@@ -42,41 +42,67 @@ struct AutoAdvanceToggle: View {
     }
 }
 
-/// Flag badge for grid cells: white flag = picked, black flag with × = rejected, outline flag on
-/// hover (click toggles pick).
+/// Flag badge for grid / filmstrip cells, monochrome like Lightroom: white flag = picked,
+/// white flag with × = rejected, outline flag on hover (click toggles pick). A dark translucent
+/// backing + shadow keeps the white glyph readable on bright photos.
 struct FlagBadge: View {
     let flag: Flag
     let isHovering: Bool
+    /// Click action (grid). nil = display only (filmstrip): no hit testing, clicks reach the cell.
     var onTogglePick: (() -> Void)?
-    /// Circle diameter; the filmstrip uses a smaller badge than the grid.
+    /// Backing diameter; the filmstrip uses a smaller badge than the grid.
     var size: CGFloat = 22
 
     var body: some View {
-        if flag != .none || (isHovering && onTogglePick != nil) {
-            Button { onTogglePick?() } label: { icon }
-                .buttonStyle(.plain)
-                .disabled(onTogglePick == nil)
-                .help(flag == .pick ? "Picked — click to unflag" : flag == .reject ? "Rejected" : "Click to pick (P)")
+        if let onTogglePick {
+            if flag != .none || isHovering {
+                Button { onTogglePick() } label: { icon }
+                    .buttonStyle(.plain)
+                    .help(flag == .pick ? "Picked — click to unflag" : flag == .reject ? "Rejected" : "Click to pick (P)")
+            }
+        } else if flag != .none {
+            icon.allowsHitTesting(false)
         }
     }
 
-    @ViewBuilder
     private var icon: some View {
-        switch flag {
-        case .pick:   glyph("flag.fill", color: .white, background: Color(red: 0.16, green: 0.62, blue: 0.33))
-        case .reject: glyph("xmark", color: .white, background: Color(red: 0.82, green: 0.2, blue: 0.2))
-        case .none:   glyph("flag", color: .white.opacity(0.9), background: .black.opacity(0.35))
+        ZStack {
+            switch flag {
+            case .pick:
+                glyph("flag.fill")
+            case .reject:
+                glyph("flag.fill")
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: size * 0.3, weight: .black))
+                            .foregroundStyle(.white)
+                            .padding(size * 0.06)
+                            .background(Color(white: 0.12), in: Circle())
+                            .offset(x: size * 0.1, y: size * 0.1)
+                    }
+            case .none:
+                glyph("flag").opacity(0.9)
+            }
         }
+        .frame(width: size, height: size)
+        .background(.black.opacity(flag == .none ? 0.3 : 0.42), in: Circle())
+        .shadow(color: .black.opacity(0.45), radius: 1.5, y: 0.5)
+        .contentShape(Circle())
     }
 
-    private func glyph(_ name: String, color: Color, background: Color) -> some View {
+    private func glyph(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: size * 0.5, weight: .bold))
-            .foregroundStyle(color)
-            .frame(width: size, height: size)
-            .background(background, in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(flag == .none ? 0 : 0.85), lineWidth: 1.5))
-            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
-            .contentShape(Circle())
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(.white)
+    }
+}
+
+extension View {
+    /// Lightroom-style reject veil: the image is desaturated and washed out towards mid grey
+    /// (a 55 % grey overlay: `contrast(0.45)` maps v → 0.45·v + 0.55·0.5). Color effects only
+    /// touch drawn pixels, so the letterbox around an aspect-fit thumbnail stays untouched.
+    func rejectedVeil(_ isRejected: Bool) -> some View {
+        saturation(isRejected ? 0.25 : 1)
+            .contrast(isRejected ? 0.45 : 1)
     }
 }

@@ -102,16 +102,32 @@ final class AppModel {
     func index(of id: Int64) -> Int? { photoIndex[id] }
 
     /// Photos that commands (flag, rating, add to folder…) act on:
-    /// in Develop the current photo; in Library the selection, or the focused photo.
+    /// in Library the selection, or the focused photo; in Develop every photo selected in the
+    /// filmstrip when the current photo is part of a multi-selection, else the current photo.
     var actionTargetIDs: [Int64] {
-        if mode == .develop { return focusedPhotoID.map { [$0] } ?? [] }
-        if !selection.isEmpty { return photos.map(\.id).filter(selection.contains) }
+        if mode == .develop {
+            guard let focused = focusedPhotoID else { return [] }
+            guard selection.count > 1, selection.contains(focused) else { return [focused] }
+            return orderedSelection
+        }
+        if !selection.isEmpty { return orderedSelection }
         return focusedPhotoID.map { [$0] } ?? []
     }
 
+    /// The selection in list order.
+    var orderedSelection: [Int64] { photos.map(\.id).filter(selection.contains) }
+
     // MARK: - Loading
 
-    func reloadPhotos() {
+    /// Reloads the list for a new source / filter / sort.
+    func reloadPhotos() { reloadPhotos(inPlace: false) }
+
+    /// `inPlace`: the same list changed under the user (flag, removal, membership…). A focused
+    /// photo that dropped out (e.g. unpicked while the Picked filter is on) hands focus to the
+    /// photo that took its place — the next remaining one, or the previous one if it was last —
+    /// so focus never falls back to the start / end of the list.
+    private func reloadPhotos(inPlace: Bool) {
+        let oldPhotos = photos
         do {
             photos = try catalog.photos(in: selectedSource, filter: filter, sort: sort)
             totalPhotoCount = try catalog.totalPhotoCount()
@@ -120,8 +136,27 @@ final class AppModel {
             photos = []
         }
         photoIndex = Dictionary(uniqueKeysWithValues: photos.enumerated().map { ($1.id, $0) })
+        let focusWasSelected = focusedPhotoID.map(selection.contains) ?? false
         selection = selection.filter { photoIndex[$0] != nil }
-        if let f = focusedPhotoID, photoIndex[f] == nil, mode == .library { focusedPhotoID = nil }
+        if let f = focusedPhotoID, photoIndex[f] == nil {
+            if inPlace, let replacement = replacement(for: f, in: oldPhotos) {
+                if selection.isEmpty && focusWasSelected { selection = [replacement] }
+                if selectionAnchorID.map({ photoIndex[$0] == nil }) ?? true { selectionAnchorID = replacement }
+                focusedPhotoID = replacement
+            } else if mode == .library {
+                focusedPhotoID = nil
+            }
+        }
+        if let a = selectionAnchorID, photoIndex[a] == nil { selectionAnchorID = nil }
+    }
+
+    /// The photo that took `id`'s place after a reload: the first photo after it in `oldPhotos`
+    /// that is still listed, else the nearest one before it.
+    private func replacement(for id: Int64, in oldPhotos: [Photo]) -> Int64? {
+        guard let i = oldPhotos.firstIndex(where: { $0.id == id }) else { return nil }
+        if let next = oldPhotos[(i + 1)...].first(where: { photoIndex[$0.id] != nil }) { return next.id }
+        if let previous = oldPhotos[..<i].last(where: { photoIndex[$0.id] != nil }) { return previous.id }
+        return photos.isEmpty ? nil : photos[min(i, photos.count - 1)].id
     }
 
     func reloadFolders() {
@@ -155,7 +190,7 @@ final class AppModel {
 
     private func flushPendingReloads() {
         if pendingReloadFolders { pendingReloadFolders = false; reloadFolders() }
-        if pendingReloadPhotos { pendingReloadPhotos = false; reloadPhotos() }
+        if pendingReloadPhotos { pendingReloadPhotos = false; reloadPhotos(inPlace: true) }
     }
 
     func report(_ error: Error) {
@@ -164,19 +199,35 @@ final class AppModel {
 
     // MARK: - Selection
 
-    /// Grid click. ⌘ toggles, ⇧ extends a range from the anchor, plain click selects one.
+    /// Grid / filmstrip click. ⌘ toggles, ⇧ extends a range from the anchor, plain click selects
+    /// one. The clicked photo becomes the focused (current) photo, except when ⌘-click deselects
+    /// it: focus then stays on / moves to a photo that is still selected (Lightroom behaviour).
     func click(photoID: Int64, command: Bool, shift: Bool) {
-        if shift, let anchor = selectionAnchorID, let a = photoIndex[anchor], let b = photoIndex[photoID] {
+        if shift, let anchor = selectionAnchorID ?? focusedPhotoID, let a = photoIndex[anchor], let b = photoIndex[photoID] {
             let range = photos[min(a, b)...max(a, b)].map(\.id)
             selection = command ? selection.union(range) : Set(range)
+            selectionAnchorID = anchor
         } else if command {
-            if selection.contains(photoID) { selection.remove(photoID) } else { selection.insert(photoID) }
             selectionAnchorID = photoID
+            if selection.contains(photoID) {
+                selection.remove(photoID)
+                if let f = focusedPhotoID, f != photoID, selection.contains(f) { return }
+                if let nearest = nearestSelected(to: photoID) { focusedPhotoID = nearest; return }
+            } else {
+                selection.insert(photoID)
+            }
         } else {
             selection = [photoID]
             selectionAnchorID = photoID
         }
         focusedPhotoID = photoID
+    }
+
+    /// The selected photo closest to `id` in list order (ties: the later one).
+    private func nearestSelected(to id: Int64) -> Int64? {
+        guard !selection.isEmpty, let i = photoIndex[id] else { return nil }
+        return selection.compactMap { s in photoIndex[s].map { (s, abs($0 - i), $0 < i) } }
+            .min { ($0.1, $0.2 ? 1 : 0) < ($1.1, $1.2 ? 1 : 0) }?.0
     }
 
     func selectAll() {
