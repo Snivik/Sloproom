@@ -79,6 +79,9 @@ Snapshots must also be written inside the container. View them with the Read too
   Export sheet (`Export/UI/ExportDevScript.swift`): `export sheet | dest <folder> | quality <n> | run |
   wait | cancel | snapshot <png> | close | menustate | dump`, e.g.
   `activate; selectall; export sheet; export dest $C/out; export quality 70; export run; export wait; export snapshot $C/sheet.png; export close; quit`.
+  Catalog transfer (`CatalogTransfer/CatalogTransferDevScript.swift`): `catalog export <file> | inspect <file> |
+  replace | close | snapshot <png> | dump | roots | relink <old root path> => <new folder> | menustate`, e.g.
+  `catalog export $C/out/x.sloproomcatalog; catalog close; catalog inspect $C/out/x.sloproomcatalog; catalog snapshot $C/summary.png; catalog replace; catalog snapshot $C/done.png; catalog close; catalog dump`.
   Synthesized keys are delivered to the main window, but menu key equivalents only match while the app
   is active: run `activate` first, and don't use the Mac meanwhile (focus stealing makes key tests flaky).
   A menu item that opens a modal alert blocks the script (the alert's run loop doesn't run DevScript).
@@ -114,6 +117,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `develop_check` | – | `[dng] [out-dir] [only-name-substring]` |
 | `masks_check` | `sloproom/Develop/DevelopSession.swift sloproom/Develop/Masking/UI/{MaskInteraction,MaskToolState,DevelopSession+Masks}.swift sloproom/Develop/Crop/{DevelopSession+Crop,CropMath,Catalog+CropPresets}.swift` | `[dng] [out-dir]` |
 | `crop_check` | `sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift` | `[photo-dir] [out-dir]` |
+| `catalog_transfer_check` | `sloproom/CatalogTransfer/CatalogTransfer.swift sloproom/LightroomImport/RootAccess.swift` | `[catalog-dir to COPY] [out-dir]` (default: the realistic catalog copy `…/Data/tmp/catalog/pristine`, `/private/tmp/claude-501/catalog-out/run`) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 
 e.g. `Tools/harness.sh /private/tmp/claude-501/<you>/crop_check Tools/crop_check.swift sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift`

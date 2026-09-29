@@ -12,6 +12,7 @@ struct MainWindowView: View {
         @Bindable var model = model
         NavigationSplitView {
             SidebarView()
+                .id(ObjectIdentifier(model.catalog))   // fresh sidebar state after Import Catalog
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 480)
         } detail: {
             switch model.mode {
@@ -22,6 +23,7 @@ struct MainWindowView: View {
         .navigationTitle(title)
         .libraryKeyShortcuts(model: model)
         .exportSheet(model: model)
+        .catalogTransferSheet(model: model)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("Mode", selection: $model.mode) {

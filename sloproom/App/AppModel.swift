@@ -23,7 +23,8 @@ enum SheetKind: String, Identifiable {
 
 @Observable
 final class AppModel {
-    let catalog: Catalog
+    /// Replaced only by `replaceCatalog(with:)` (File > Import Catalog…).
+    private(set) var catalog: Catalog
 
     // MARK: Folders
     private(set) var folders: [Folder] = []
@@ -78,10 +79,44 @@ final class AppModel {
     init(catalog: Catalog) {
         self.catalog = catalog
         PreviewService.shared.configure(catalog: catalog)
+        observeCatalog()
+        reloadFolders()
+        reloadPhotos()
+    }
+
+    private func observeCatalog() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = NotificationCenter.default.addObserver(forName: Catalog.didChange, object: catalog, queue: .main) { [weak self] note in
             guard let change = Catalog.change(from: note) else { return }
             MainActor.assumeIsolated { self?.handle(change) }
         }
+    }
+
+    // MARK: - Catalog lifecycle (CatalogTransfer: Import Catalog)
+
+    /// Leaves Develop (its pending edits are queued for saving), closes sheets and empties the
+    /// photo list so the grid stops loading previews of the catalog about to be replaced.
+    func prepareForCatalogReplacement() {
+        mode = .library
+        presentedSheet = nil
+        selection = []
+        selectionAnchorID = nil
+        focusedPhotoID = nil
+        photos = []
+        photoIndex = [:]
+    }
+
+    /// Switches to `newCatalog` (already open): previews service, observers, folders, photos;
+    /// selection reset, source = All Photographs. The old catalog must be closed by the caller.
+    func replaceCatalog(with newCatalog: Catalog) {
+        prepareForCatalogReplacement()
+        pendingReloadPhotos = false
+        pendingReloadFolders = false
+        catalog = newCatalog
+        PreviewService.shared.configure(catalog: newCatalog)
+        observeCatalog()
+        selectedSource = .all
+        filter = PhotoFilter()
         reloadFolders()
         reloadPhotos()
     }

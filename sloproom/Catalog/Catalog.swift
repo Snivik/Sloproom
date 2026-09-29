@@ -68,6 +68,15 @@ nonisolated final class Catalog: @unchecked Sendable {
         try migrate()
     }
 
+    /// Closes the database (Import Catalog swaps the file). Later calls on this instance throw.
+    func close() {
+        db.close()
+    }
+
+    /// Core schema version this app writes (`PRAGMA user_version`). Catalogs with a higher
+    /// version come from a newer app and are refused by Import Catalog.
+    static var schemaVersion: Int { migrations.count }
+
     /// Subdirectory of `catalogDirectory`, created on demand (e.g. `cacheDirectory("Previews")`).
     func cacheDirectory(_ name: String) -> URL {
         let url = catalogDirectory.appendingPathComponent(name, isDirectory: true)

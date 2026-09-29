@@ -21,6 +21,7 @@ struct sloproomApp: App {
             SloproomCommands(model: model)
             PreviewCommands(model: model)
             ExportCommands(model: model)
+            CatalogTransferCommands(model: model)
         }
 
         Settings {
