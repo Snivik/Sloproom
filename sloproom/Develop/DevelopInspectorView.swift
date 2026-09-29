@@ -16,12 +16,13 @@ struct DevelopInspectorView: View {
                 .padding([.horizontal, .top], 10)
             HStack {
                 Button { session.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .disabled(!session.canUndo).help("Undo (⌘Z)")
+                    .disabled(!session.canUndo).iconHelp("Undo", shortcut: .undo)
                 Button { session.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(!session.canRedo).help("Redo (⇧⌘Z)")
+                    .disabled(!session.canRedo).iconHelp("Redo", shortcut: .redo)
                 Spacer()
                 Button("Reset All") { session.resetAll() }
                     .disabled(session.settings.isDefault)
+                    .help("Reset every adjustment, crop and mask of this photo")
             }
             .buttonStyle(.borderless)
             .padding(10)
@@ -31,6 +32,9 @@ struct DevelopInspectorView: View {
                 Text("Crop").tag(DevelopTool.crop)
                 Text("Mask").tag(DevelopTool.mask)
             }
+            .segmentHelp(["Adjust: global adjustments, no tool on the photo",
+                          ShortcutStore.shared.help("Crop & Rotate tool", .toggleCropTool),
+                          "Masking tool: gradients and brush for local adjustments"])
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 10)

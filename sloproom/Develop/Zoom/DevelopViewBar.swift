@@ -13,6 +13,15 @@ struct DevelopViewBar: View {
     @Environment(AppModel.self) private var model
     private var zoom: ZoomController { ZoomController.develop }
     private var panels: DevelopPanels { DevelopPanels.shared }
+    private var store: ShortcutStore { .shared }
+
+    /// Fit / Fill / 1:1 (+ the current level when it isn't one of them).
+    private var zoomSegmentHelp: [String] {
+        var tips = [store.help("Fit: whole photo", .zoomToggle), "Fill: photo fills the canvas",
+                    store.help("1:1: one image pixel per screen pixel", .zoomToggle)]
+        if !ZoomBarLevels.quick.contains(zoom.level) { tips.append("Current zoom level") }
+        return tips
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -31,35 +40,37 @@ struct DevelopViewBar: View {
             .labelsHidden()
             .fixedSize()
             .disabled(session.activeTool == .crop)
-            .help("Zoom: Z toggles Fit / 1:1 at the pointer, ⌘= / ⌘- step, pinch or ⌘-scroll to zoom")
+            .segmentHelp(zoomSegmentHelp)
 
             Menu {
                 ForEach(ZoomLevel.steps, id: \.self) { r in
                     Button(CanvasViewport.label(.ratio(r))) { zoom.setLevel(.ratio(r), anchor: nil, remember: true) }
                 }
                 Divider()
-                Button("Zoom In (⌘=)") { zoom.step(zoomIn: true, anchor: nil) }
-                Button("Zoom Out (⌘-)") { zoom.step(zoomIn: false, anchor: nil) }
+                Button(store.help("Zoom In", .zoomIn)) { zoom.step(zoomIn: true, anchor: nil) }
+                Button(store.help("Zoom Out", .zoomOut)) { zoom.step(zoomIn: false, anchor: nil) }
             } label: {
                 Text(zoom.displayLabel).monospacedDigit()
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .disabled(session.activeTool == .crop)
-            .help("Zoom level")
+            .help(store.help("Zoom level (pinch or ⌘-scroll to zoom)", [.zoomIn, .zoomOut]))
 
             Spacer()
 
             Button { panels.sidebarHidden.toggle() } label: { Image(systemName: "sidebar.left") }
-                .help(panels.sidebarHidden ? "Show Folders" : "Hide Folders")
+                .iconHelp(panels.sidebarHidden ? "Show Folders" : "Hide Folders")
             Button { panels.inspectorHidden.toggle() } label: { Image(systemName: "sidebar.right") }
-                .help("Show / Hide Inspector (Tab: both side panels)")
+                .help(store.help(panels.inspectorHidden ? "Show Inspector" : "Hide Inspector", nil) + " — "
+                      + store.help("both side panels", .toggleSidePanels))
+                .accessibilityLabel(panels.inspectorHidden ? "Show Inspector" : "Hide Inspector")
             Button { panels.toggleLightsOut() } label: { Image(systemName: "rectangle.inset.filled") }
-                .help("Canvas Only (⇧Tab)")
+                .iconHelp("Canvas Only: hide all panels", shortcut: .toggleAllPanels)
             Button { FullScreenPreview.shared.show(model: model) } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
-            .help("Full Screen Preview (F)")
+            .iconHelp("Full Screen Preview", shortcut: .fullScreenPreview)
         }
         .buttonStyle(.borderless)
         .controlSize(.small)

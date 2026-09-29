@@ -25,6 +25,8 @@ struct ExportSheet: View {
                         Slider(value: Binding(get: { Double(controller.quality) },
                                               set: { controller.quality = Int($0.rounded()) }),
                                in: 0...100)
+                        .help("JPEG quality: higher = better image, larger files")
+                        .accessibilityLabel("JPEG Quality")
                         Text("\(controller.quality)")
                             .monospacedDigit()
                             .frame(width: 30, alignment: .trailing)
@@ -58,6 +60,7 @@ struct ExportSheet: View {
                 Spacer(minLength: 0)
                 if controller.isCheckingDestination { ProgressView().controlSize(.small) }
                 Button("Choose…") { controller.chooseDestination() }
+                    .help("Choose the folder the JPEGs are written to")
             }
             if let problem = controller.destinationProblem {
                 Text(problem)
@@ -103,21 +106,26 @@ struct ExportSheet: View {
         HStack {
             if controller.phase == .finished, controller.result?.exported.isEmpty == false {
                 Button("Show in Finder") { controller.showInFinder() }
+                    .help("Reveal the exported files in Finder")
             }
             Spacer()
             switch controller.phase {
             case .idle:
                 Button("Cancel") { controller.close() }
                     .keyboardShortcut(.cancelAction)
+                    .help("Close without exporting (Esc)")
                 Button("Export") { controller.start() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Export full-resolution sRGB JPEGs (Return)")
                     .disabled(!controller.canExport)
             case .exporting:
                 Button("Cancel") { controller.cancel() }
                     .keyboardShortcut(.cancelAction)
+                    .help("Stop exporting (Esc); finished files are kept")
             case .finished:
                 Button("Done") { controller.close() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Close (Return)")
             }
         }
     }

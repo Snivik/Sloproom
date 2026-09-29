@@ -6,6 +6,7 @@
 //  time, so a single shared instance). Brush settings persist in UserDefaults.
 //
 
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -20,7 +21,10 @@ final class MaskToolState {
     /// Paint eraser strokes (also while ⌥ is held).
     var eraseMode = false
 
-    /// Brush size 1...100 (radius = size / 400 of the image width).
+    /// Brush size 1...100, a SCREEN size (Lightroom): the cursor radius is
+    /// `brushSize × screenPointsPerSize` view points at any zoom. Each stroke stores its radius
+    /// in image units computed from the zoom at paint time (`brushRadius(in:)`), so painting
+    /// zoomed in paints finer strokes. Stored strokes are image-normalized and unaffected.
     var brushSize: Double { didSet { save(brushSize, "size") } }
     /// 0...100
     var brushFeather: Double { didSet { save(brushFeather, "feather") } }
@@ -29,8 +33,17 @@ final class MaskToolState {
 
     static let sizeRange: ClosedRange<Double> = 1...100
 
-    /// Brush radius as a fraction of the oriented image width (`BrushStroke.radius`).
-    var brushRadius: Double { brushSize / 400 }
+    /// View points of cursor radius per unit of `brushSize` (16 → 40 pt, about the old size at Fit).
+    static let screenPointsPerSize: CGFloat = 2.5
+
+    /// Cursor radius in view points (constant on screen).
+    var brushScreenRadius: CGFloat { CGFloat(brushSize) * Self.screenPointsPerSize }
+
+    /// Radius for a new stroke as a fraction of the oriented image width (`BrushStroke.radius`)
+    /// at the current zoom: the screen radius converted through the canvas geometry.
+    func brushRadius(in geometry: CanvasGeometry) -> Double {
+        geometry.sourceWidthFraction(fromViewLength: brushScreenRadius)
+    }
 
     /// `[` / `]`
     func stepBrushSize(up: Bool) {

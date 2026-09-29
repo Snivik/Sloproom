@@ -27,6 +27,8 @@ struct PhotoGridCell: View {
                             .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 3))
                             .foregroundStyle(.white)
                             .padding(5)
+                            .help("Edited in Develop")
+                            .accessibilityLabel("Edited")
                     }
                 }
             HStack(spacing: 4) {
@@ -36,6 +38,8 @@ struct PhotoGridCell: View {
                 if photo.rating > 0 {
                     Text(String(repeating: "★", count: photo.rating))
                         .foregroundStyle(.secondary)
+                        .help("Rating: \(photo.rating) star\(photo.rating == 1 ? "" : "s")")
+                        .accessibilityLabel("\(photo.rating) stars")
                 }
             }
             .font(.caption)

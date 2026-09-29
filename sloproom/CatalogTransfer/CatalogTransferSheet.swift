@@ -15,8 +15,8 @@ struct CatalogTransferCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {   // after Import… / Export… (SloproomCommands, ExportCommands)
             Divider()
-            Button("Export Catalog…") { CatalogTransferController.shared.chooseExportDestination(model: model) }
-            Button("Import Catalog…") { CatalogTransferController.shared.chooseImportFile(model: model) }
+            ShortcutMenuButton(.exportCatalog) { CatalogTransferController.shared.chooseExportDestination(model: model) }
+            ShortcutMenuButton(.importCatalog) { CatalogTransferController.shared.chooseImportFile(model: model) }
         }
     }
 }
@@ -77,8 +77,9 @@ struct CatalogTransferSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([r.url]) }
+                    .help("Reveal the exported catalog file in Finder")
                 Spacer()
-                Button("Done") { controller.dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { controller.dismiss() }.keyboardShortcut(.defaultAction).help("Close (Return)")
             }
         }
         .padding(20)
@@ -106,8 +107,9 @@ struct CatalogTransferSheet: View {
             }
             HStack {
                 Button("Show Backup in Finder") { NSWorkspace.shared.activateFileViewerSelecting([o.backup]) }
+                    .help("Reveal the backup of the previous catalog in Finder")
                 Spacer()
-                Button("Done") { controller.dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { controller.dismiss() }.keyboardShortcut(.defaultAction).help("Close (Return)")
             }
         }
         .padding(20)
@@ -119,7 +121,7 @@ struct CatalogTransferSheet: View {
             Text(message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("OK") { controller.dismiss() }.keyboardShortcut(.defaultAction)
+                Button("OK") { controller.dismiss() }.keyboardShortcut(.defaultAction).help("Close (Return)")
             }
         }
         .padding(20)
@@ -181,7 +183,9 @@ private struct ImportSummaryView: View {
             HStack {
                 Spacer()
                 Button("Cancel") { CatalogTransferController.shared.dismiss() }.keyboardShortcut(.cancelAction)
+                    .help("Keep the current catalog (Esc)")
                 Button("Replace Current Catalog") { Task { await CatalogTransferController.shared.replace(model: model) } }
+                    .help("Back up the current catalog, then replace it with this one")
             }
         }
         .padding(20)

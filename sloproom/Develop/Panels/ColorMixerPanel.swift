@@ -25,6 +25,8 @@ struct ColorMixerPanel: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .controlSize(.small)
+            .segmentHelp(["Hue of each color band", "Saturation of each color band", "Luminance of each color band",
+                          "Hue, saturation and luminance together"])
 
             switch tab {
             case .hue: group(\.hue, .hue)

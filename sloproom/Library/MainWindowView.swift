@@ -7,6 +7,7 @@ import SwiftUI
 
 struct MainWindowView: View {
     @Environment(AppModel.self) private var model
+    private var store: ShortcutStore { .shared }
 
     var body: some View {
         @Bindable var model = model
@@ -32,6 +33,8 @@ struct MainWindowView: View {
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
+                .segmentHelp([store.help("Library: browse, flag and organize", .libraryMode),
+                              store.help("Develop: edit the photo", .developMode)])
             }
             // Library shows the same filter in GridFilterBar; in Develop it filters the filmstrip.
             if model.mode == .develop {
@@ -50,9 +53,15 @@ struct MainWindowView: View {
                 Button { model.presentedSheet = .importPhotos } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
-                .help("Import Photos… (⇧⌘I)")
+                .help(store.help("Import Photos…", .importPhotos))
             }
         }
+        .toolbarHelp([
+            "com.apple.SwiftUI.navigationSplitView.toggleSidebar": "Show / Hide Folders",
+            "Mode": "Library / Develop",
+            "Flag Filter": "Show filmstrip photos by flag",
+            "Import": store.help("Import Photos…", .importPhotos),
+        ])
         .sheet(item: $model.presentedSheet) { kind in
             switch kind {
             case .importPhotos: ImportPhotosSheet()

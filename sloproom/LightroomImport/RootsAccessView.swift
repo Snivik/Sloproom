@@ -77,6 +77,7 @@ struct RootsAccessView: View {
             set: { if !$0 { pendingRelink = nil } }
         ), presenting: pendingRelink) { pending in
             Button("Relink Anyway") { performRelink(pending) }
+                .help("Relink even though few photos were found at the new location")
             Button("Cancel", role: .cancel) {}
         } message: { pending in
             Text(pending.message)

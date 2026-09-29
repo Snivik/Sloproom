@@ -14,16 +14,18 @@ struct CropPanel: View {
     @Bindable var session: DevelopSession
     @State private var presets: [CropPreset] = []
     @State private var isEditingPresets = false
+    private var store: ShortcutStore { .shared }
 
     var body: some View {
         InspectorSection("Crop & Rotate", id: "crop", onReset: { session.resetCrop() }) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Button(session.isCropping ? "Done" : "Crop") { session.toggleCropTool() }
-                        .help(session.isCropping ? "Keep the crop (Return or R)" : "Crop tool (R)")
+                        .help(session.isCropping ? store.help("Keep the crop", [.cropCommit, .toggleCropTool])
+                                                 : store.help("Crop tool", .toggleCropTool))
                     if session.isCropping {
                         Button("Cancel") { session.cancelCrop() }
-                            .help("Discard crop changes (Esc)")
+                            .help(store.help("Discard crop changes", .cropCancel))
                     }
                     Spacer()
                     Button("Reset") { session.resetCrop() }
@@ -42,6 +44,7 @@ struct CropPanel: View {
                         }
                     }
                     .labelsHidden()
+                    .help("Crop aspect ratio (Original, Custom or a preset)")
                     Button {
                         session.setCropAspectLocked(!session.settings.geometry.aspectLocked)
                     } label: {
@@ -49,26 +52,28 @@ struct CropPanel: View {
                             .frame(width: 16)
                     }
                     .buttonStyle(.borderless)
-                    .help(session.settings.geometry.aspectLocked ? "Aspect locked (⇧ while dragging to unlock)" : "Aspect unlocked")
+                    .help(session.settings.geometry.aspectLocked ? "Aspect locked: click to unlock (or hold ⇧ while dragging)" : "Aspect unlocked: click to lock")
+                    .accessibilityLabel(session.settings.geometry.aspectLocked ? "Unlock Aspect" : "Lock Aspect")
                     Button {
                         session.swapCropOrientation()
                     } label: {
                         Image(systemName: "rectangle.portrait.rotate")
                     }
                     .buttonStyle(.borderless)
-                    .help("Swap portrait / landscape (X)")
+                    .iconHelp("Swap portrait / landscape", shortcut: .cropSwapAspect)
                 }
 
                 HStack(spacing: 14) {
                     Button { session.rotateQuarter(clockwise: false) } label: { Image(systemName: "rotate.left") }
-                        .help("Rotate Left (⌘[)")
+                        .iconHelp("Rotate Left", shortcut: .rotateLeft)
                     Button { session.rotateQuarter(clockwise: true) } label: { Image(systemName: "rotate.right") }
-                        .help("Rotate Right (⌘])")
+                        .iconHelp("Rotate Right", shortcut: .rotateRight)
                     Button { session.flipHorizontally() } label: { Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
-                        .help("Flip Horizontal")
+                        .iconHelp("Flip Horizontal")
                     Spacer()
                     Button("Edit Presets…") { isEditingPresets = true }
                         .controlSize(.small)
+                        .help("Add, rename, reorder or delete crop aspect presets")
                 }
                 .buttonStyle(.borderless)
 
@@ -78,7 +83,7 @@ struct CropPanel: View {
                 }
 
                 if session.isCropping {
-                    Text("Drag corners or edges to resize, inside to move, outside to rotate. X swaps orientation, O cycles the grid (\(session.cropTool.gridMode.rawValue)).")
+                    Text("Drag corners or edges to resize, inside to move, outside to rotate. \(store.display(.cropSwapAspect)) swaps orientation, \(store.display(.cropGridOverlay)) cycles the grid (\(session.cropTool.gridMode.rawValue)).")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

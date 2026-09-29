@@ -38,13 +38,21 @@ struct PreviewSettingsView: View {
                     Picker("Standard preview size", selection: $standardSize) {
                         ForEach(PreviewSettings.standardSizes, id: \.self) { Text("\($0) px").tag($0) }
                     }
+                    .help("Long side of the previews shown in Develop and full screen before the photo is rendered")
+                    .accessibilityLabel("Standard preview size")
                     Picker("Thumbnail size", selection: $thumbnailSize) {
                         ForEach(PreviewSettings.thumbnailSizes, id: \.self) { Text("\($0) px").tag($0) }
                     }
+                    .help("Long side of the grid and filmstrip thumbnails")
+                    .accessibilityLabel("Thumbnail size")
                     Picker("Quality", selection: $quality) {
                         ForEach(PreviewSettings.qualities, id: \.value) { Text($0.title).tag($0.value) }
                     }
+                    .help("JPEG quality of cached previews (higher = sharper, larger cache)")
+                    .accessibilityLabel("Quality")
                     Toggle("Use embedded camera previews for unedited photos", isOn: $useEmbedded)
+                        .help("Much faster: the camera's own JPEG inside the RAW is used until a photo is edited")
+                        .accessibilityLabel("Use embedded camera previews for unedited photos")
                 }
                 Section {
                     LabeledContent("Keep last rendered photos") {
@@ -56,6 +64,8 @@ struct PreviewSettingsView: View {
                                 .frame(width: 60)
                             Stepper("", value: recentCountBinding, in: 0...RecentRenders.maxLimit, step: 10)
                                 .labelsHidden()
+                                .help("Number of recent Develop renders kept (steps of 10; 0 = off)")
+                                .accessibilityLabel("Keep last rendered photos")
                         }
                     }
                     LabeledContent("Size on disk") {
@@ -77,13 +87,17 @@ struct PreviewSettingsView: View {
                     Picker("Maximum cache size", selection: $maxCacheGB) {
                         ForEach(PreviewSettings.maxCacheOptions, id: \.self) { Text($0 == 0 ? "Unlimited" : "\($0) GB").tag($0) }
                     }
+                    .help("The oldest previews are deleted beyond this size")
+                    .accessibilityLabel("Maximum cache size")
                     HStack {
                         if jobs.isBusy {
                             PreviewActivityView()
                         }
                         Spacer()
                         Button("Clean Cache…") { confirmClean = true }
+                            .help("Delete every cached preview (they are rebuilt when shown)")
                         Button("Regenerate All…") { confirmRegenerate = true }
+                            .help("Rebuild the previews of every photo with the current settings")
                     }
                 } header: {
                     Text("Cache")
@@ -97,7 +111,7 @@ struct PreviewSettingsView: View {
             if isPresented && showsDoneButton {
                 HStack {
                     Spacer()
-                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).help("Close (Return)")
                 }
                 .padding([.horizontal, .bottom], 16)
             }

@@ -3,7 +3,8 @@
 //  sloproom
 //
 //  Canvas layer while the white-balance eyedropper is armed: crosshair cursor, click a neutral
-//  point to set custom WB from it (Esc or a click outside the image cancels).
+//  point to set custom WB from it (Esc — registry action `cancelWhiteBalance` — or a click outside
+//  the image cancels).
 //
 
 import AppKit
@@ -25,6 +26,9 @@ struct WhiteBalancePickerOverlay: View {
                 session.setWhiteBalance(from: .point(p))
             }
             .onExitCommand { session.isPickingWhiteBalance = false }
+            .shortcutHandlers(id: ObjectIdentifier(session)) { [weak session] in
+                [ShortcutHandler(.cancelWhiteBalance) { _ in session?.isPickingWhiteBalance = false }]
+            }
             .onDisappear { NSCursor.arrow.set() }
     }
 }

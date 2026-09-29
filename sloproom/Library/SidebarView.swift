@@ -7,13 +7,14 @@
 //  Folder management:
 //  - "+" in the Folders header, ⇧⌘N, or the context menu create "Untitled Folder" and start an
 //    inline rename (Enter commits, Esc cancels, clicking away commits).
-//  - Double-click (or context menu "Rename") renames; ⌫ / "Delete Folder…" asks for confirmation.
+//  - Double-click (or context menu "Rename") renames; ⌫ (registry action) / "Delete Folder…" asks for confirmation.
 //  - Drag a folder onto a folder to nest it, onto the top / bottom edge of a row to reorder,
 //    onto the "Folders" header to move it to the top level. Drag photos from the grid onto a
 //    folder to add them (hold ⌥ to move them out of the shown folder).
 //  Rows: see `FolderRowView.swift`; actions: `FolderActions.swift`.
 //
 
+import AppKit
 import SwiftUI
 
 struct SidebarView: View {
@@ -49,10 +50,15 @@ struct SidebarView: View {
         } primaryAction: { items in
             if case .folder(let id)? = items.first { state.renamingFolderID = id }
         }
-        .onDeleteCommand {
-            if state.renamingFolderID == nil, case .folder(let id) = model.sidebarItem {
-                FolderActions.requestDelete(id, model: model)
-            }
+        .shortcutHandlers { [model] in
+            // ⌫ (registry action `deleteFolder`) while the sidebar list has focus.
+            [ShortcutHandler(.deleteFolder, when: { event in
+                guard event.window?.firstResponder is NSTableView, FolderSidebarState.shared.renamingFolderID == nil,
+                      case .folder = model.sidebarItem else { return false }
+                return true
+            }) { _ in
+                if case .folder(let id) = model.sidebarItem { FolderActions.requestDelete(id, model: model) }
+            }]
         }
         .alert(state.pendingDeletion?.title ?? "", isPresented: Binding(
             get: { state.pendingDeletion != nil },

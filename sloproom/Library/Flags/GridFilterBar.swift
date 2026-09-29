@@ -24,12 +24,14 @@ struct GridFilterBar: View {
             .labelsHidden()
             .frame(maxWidth: 440)
             .help("Show photos by flag")
+            .segmentHelp(Self.filters.map(\.help))
 
             if model.shownFolderID != nil {
                 Toggle("Subfolders", isOn: $model.includeSubfolders)
                     .toggleStyle(.checkbox)
                     .fixedSize()
                     .help("Also show photos of this folder's subfolders")
+                    .accessibilityLabel("Include Subfolders")
             }
 
             Spacer(minLength: 8)
@@ -52,5 +54,18 @@ struct GridFilterBar: View {
         let s = model.selection.count
         let photos = "\(n.formatted()) photo\(n == 1 ? "" : "s")"
         return s > 0 ? "\(photos), \(s.formatted()) selected" : photos
+    }
+}
+
+extension FlagFilter {
+    /// Tooltip of the filter segment.
+    var help: String {
+        switch self {
+        case .all: "Show all photos"
+        case .picked: "Show picked photos only"
+        case .rejected: "Show rejected photos only"
+        case .unflagged: "Show photos without a flag"
+        case .notRejected: "Show picked and unflagged photos (hide rejects)"
+        }
     }
 }

@@ -44,6 +44,8 @@ struct ThumbnailView: View {
                     Image(systemName: status == .offline ? "externaldrive.badge.xmark" : "exclamationmark.triangle")
                         .font(.title3)
                         .foregroundStyle(.secondary)
+                        .help(status == .offline ? "Original file is offline (connect the drive)" : "The preview could not be loaded")
+                        .accessibilityLabel(status == .offline ? "Offline" : "Preview failed")
                 }
             }
         }

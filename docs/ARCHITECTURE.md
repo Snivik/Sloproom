@@ -26,7 +26,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 
 | Path | What |
 |---|---|
-| `App/sloproomApp.swift` | scene: main `Window` (+ `SloproomCommands`, `PreviewCommands`), `Settings` (tabs Previews, Drives) |
+| `App/sloproomApp.swift` | scene: main `Window` (+ `SloproomCommands`, `PreviewCommands`, …), `Settings` (`SettingsRootView`: tabs Previews, Drives, Keyboard) |
 | `App/AppModel.swift`, `FolderTree.swift`, `SloproomCommands.swift` | app state, folder tree, menu bar (+ `TextInputGuard`) |
 | `App/DevTools.swift`, `App/IntegrationDevScript.swift` | "Add Folder in Place (Dev)", `DevScript` (DEBUG UI scripting); feature DevScript files live next to their feature |
 | `Catalog/*` | SQLite wrapper, catalog open/migrate, photos / folders / roots / crop-preset API, models, security scope |
@@ -34,7 +34,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `LightroomImport/*` | Lightroom Classic catalog import (structure only), root access status / grants (`RootAccess`, `RootsAccessView`) |
 | `Library/*` | main window, grid, cells, filmstrip, sidebar; `ThumbnailView` (the only preview loader) |
 | `Library/Sidebar/*` | folder management (create/rename/delete/move/reorder, DnD, context menus), sidebar state, folders DevScript (key/click synthesis) |
-| `Library/Flags/*` | flag actions (auto-advance), grid filter bar, `LibraryKeyMonitor` (D, ⌘A) |
+| `Library/Flags/*` | flag actions (auto-advance), grid filter bar, `LibraryKeyMonitor` (installs the shortcut dispatcher; D, ⌘A) |
 | `Previews/*` (+ `Previews/UI/*`) | preview service, disk cache, lanes, build jobs, settings, recent Develop renders + neighbour prefetch (+ settings view, Library > Previews menu, toolbar activity, `rr` DevScript) |
 | `Develop/EditSettings.swift`, `GeometryMath.swift`, `CanvasGeometry.swift`, `RenderPipeline.swift` | edit model, geometry maps, render pipeline |
 | `Develop/Stages/*` | the 7 render stages + `LocalAdjustmentRenderer` |
@@ -44,6 +44,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Develop/DevelopSession.swift`, `DevelopView/Canvas/Inspector`, `DevelopSlider`, `Panels/*`, `Overlays/*` | develop session + UI |
 | `Develop/Zoom/*` | canvas zoom / pan (`ZoomController`, `RegionRenderer` engine), view bar, panel visibility (Tab / ⇧Tab), full-screen preview (F), DevScript |
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
+| `Shortcuts/*` | keyboard shortcut registry (`ShortcutModel`, `ShortcutStore`), dispatcher + menu items (`ShortcutKeys`), Settings > Keyboard, tooltip helpers (`SegmentHelp`), DevScript |
 | `CatalogTransfer/*` | Export Catalog / Import Catalog (engine `CatalogTransfer.swift`; controller, sheet + `CatalogTransferCommands`, DevScript) |
 
 Conventions: new catalog API as `nonisolated extension Catalog` in the feature's own
@@ -232,38 +233,93 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
   the Picked filter, removed…) hands focus (and the selection, if it emptied) to the next remaining
   photo of the old list, or the previous one if it was last. Source / filter / sort changes don't.
 
-Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder (⇧⌘N), Import Photos… (⇧⌘I),
-Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export… (⇧⌘E), Export Catalog…, Import Catalog… (no shortcuts); Edit > Undo/Redo route to the develop session
-in Develop mode, otherwise to the responder chain; Edit > Select All Photos (⌥⌘A); Photo > Pick (P),
-Unflag (U), Reject (X), Auto Advance After Flagging, Set Rating (0–5), Copy / Paste Settings (⇧⌘C /
-⇧⌘V), Before / After (`\`); View > Library (G), Develop (D); Library > Previews ▸ (build / regenerate
-/ discard for selection, build all, clean cache). Menu items that act on the selection read
+Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder, Import Photos…,
+Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export…, Export Catalog…, Import Catalog…; Edit > Undo/Redo route to the develop session
+in Develop mode, otherwise to the responder chain; Edit > Select All Photos; Photo > Pick, Unflag, Reject, Auto Advance After Flagging,
+Set Rating (0–5), Copy / Paste Settings, Before / After; View > Library, Develop, Keyboard Shortcuts…; Library > Previews ▸ (build /
+regenerate / discard for selection, build all, clean cache); Help > Keyboard Shortcuts…. Every item with a shortcut is a
+`ShortcutMenuButton` (keys: see the registry below). Menu items that act on the selection read
 `model.actionTargetIDs` when chosen (menu-bar Commands are not re-rendered on selection changes, so
 don't compute `.disabled` from the selection there).
 
-### Keyboard map
-
-Single-letter shortcuts are real menu key equivalents without modifiers (`letterButton`);
-`TextInputGuard` re-types the letter into a focused text field instead of running the command.
-Local key monitors see keys BEFORE menu matching and all yield while a text field is edited:
-
-| Where | Keys | Handler |
-|---|---|---|
-| everywhere | P / U / X, 0–5, G, `\`, ⇧⌘C / ⇧⌘V, ⇧⌘N, ⇧⌘I | menu (`SloproomCommands`) |
-| main window | D (AppKit's Start Dictation would swallow it), ⌘A in Library | `LibraryKeyMonitor` |
-| Library grid (focused) | arrows (+⇧ extend), Return → Develop, ⌫ remove from shown folder / from catalog (confirm) | `LibraryGridView` |
-| sidebar (focused) | ⌫ delete folder (confirm) | `SidebarView` |
-| Develop | R toggle crop tool, ⌘[ / ⌘] rotate; ←/→ previous / next photo (canvas focused) | `CropKeyMonitor`, `DevelopCanvasView` |
-| Develop canvas | Z Fit ↔ 1:1 at pointer, ⌘= / ⌘- zoom step, Space (held) hand; pinch / ⌘⌥-scroll zoom, scroll pans | `ZoomEventMonitor` (Develop only; Library keeps ⌘= / ⌘-) |
-| Develop | Tab side panels, ⇧Tab sidebar + inspector + filmstrip | `DevelopPanels` (`developPanelShortcuts`) |
-| main window (Library + Develop) | F full-screen preview | `FullScreenShortcut` (`fullScreenPreviewShortcut`, MainWindowView) |
-| full-screen preview | ←/→ previous / next, Z / ⌘= / ⌘- / Space as on the canvas, F / Esc close | `FullScreenPreview`, `ZoomEventMonitor` |
-| crop tool | X swap aspect (instead of Reject), O cycle grid, Return commit, Esc cancel | `CropKeyMonitor` |
-| mask tool (overlay focused) | O coverage overlay, [ / ] brush size, ⌫ / ⌦ delete selected mask, Esc cancel creation / leave tool | `MaskOverlayView` (Backspace is U+007F: match it by character, `onKeyPress(.delete)` never fires) |
-| WB eyedropper | Esc cancel | `WhiteBalancePickerOverlay` |
-
 The toolbar flag-filter menu is shown only in Develop (it filters the filmstrip); Library uses the
 `GridFilterBar` (same `model.filter`).
+
+### Keyboard shortcuts (`Shortcuts/`, harness `Tools/shortcuts_check.swift`)
+
+Every shortcut is a **registry action**; the user can rebind any of them in Settings > Keyboard (also
+View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a tooltip: add a
+`ShortcutAction` and read the binding.
+
+- `ShortcutModel.swift` (UI-free): `KeyCombo` (key + `KeyModifiers`; spec strings `"cmd+shift+e"`, `"k"`,
+  `"escape"`; `display` "⇧⌘E"; `accepts(_:)`: ⌘= / ⌘- also fire with ⇧ (⌘+ / ⌘_), ⌫ accepts ⌦, grid arrows
+  accept an extra ⇧), `ShortcutContext` (the ONE state a key arrives in: `library`, `develop`, `crop`,
+  `mask`, `whiteBalance` (eyedropper armed), `fullScreen`), `ShortcutScope` (a set of contexts: Everywhere,
+  Library & Develop, Library, Develop (incl. its tools), Develop & Full Screen, Crop Tool, Mask Tool, White
+  Balance Selector, Full Screen Preview), `ShortcutAction` (stable string id = persisted, title, category,
+  scope, default binding, `repeats`, `isMenuCommand`, `focusGroup`).
+- Scopes: the same key may mean different things in scopes that don't overlap (⌘= = thumbnail size in
+  Library, zoom in Develop / full screen); a **narrower scope overrides a broader one** (X = Swap Aspect in
+  the crop tool overrides X = Reject everywhere). Two bindings **conflict** only when their scopes overlap
+  and neither is strictly narrower (both Everywhere; Library & Develop vs Develop & Full Screen), and not
+  when they're focus-exclusive (grid vs sidebar ⌫).
+- `ShortcutStore.shared` (@Observable): defaults + overrides in UserDefaults `shortcuts.overrides`
+  ([id: spec], "" = none) and `shortcuts.revision` (bumped per change), `binding(for:)`, `setBinding`,
+  `reassign` (takes the key from conflicting actions), `reset`, `resetAll`, `conflicts(for:action:)`,
+  `overridden(by:)`, `candidates(for:in:)` (narrowest scope first), `help("Pick", .pick)` → "Pick (P)".
+- `ShortcutKeys.swift`: `KeyCombo(event:)` (special keys by key code, printable keys = character without
+  modifiers), `ShortcutMenuButton` / `ShortcutMenuToggle` (menu item with the user's key;
+  `TextInputGuard.forwardIfTyping` types plain keys into a focused text field instead),
+  `ShortcutMenuSync` (SwiftUI never updates an existing NSMenuItem's key equivalent, so after a change the
+  registry items are patched by title), `ShortcutDispatcher` (**one** local keyDown/keyUp monitor, installed
+  by `MainWindowView.libraryKeyShortcuts`): computes the context of the key window (main window or the
+  full-screen window; nil while a text field is edited, a sheet is up, or another window such as Settings is
+  key), asks the store for candidates and performs the first one whose registered handler is available; if
+  the first match is a menu command without handler it lets the menu take the key. Non-repeating actions
+  swallow auto-repeats (holding X in crop never falls through to Reject). Views register handlers with
+  `.shortcutHandlers(id:) { [ShortcutHandler(.action, when: { event in … }) { event in … }] }`
+  (re-registered when `id` changes, removed on disappear); `release:` = key-up of held keys (Space).
+- Tooltips: `.help("Rotate Left", shortcut: .rotateLeft)` / `.iconHelp(…)` (+ accessibility label) compute
+  the text from the store, so tooltips follow rebinding. Segmented pickers: `.segmentHelp([...])` (per-segment
+  tooltips on the NSSegmentedControl; SwiftUI's `.help` never reaches segments). Window toolbar items:
+  `.toolbarHelp([label: tip])` (SwiftUI doesn't pass `.help` to NSToolbarItems). Audit:
+  `Tools/ax_help_audit.swift` (see Tools/README).
+- `KeyboardSettingsView.swift`: Settings > Keyboard (search, record: Esc cancels, ⌫ removes, conflict →
+  "Already used by …" Reassign / Cancel, per-row reset, Reset All; ⌘Q / ⌘W / ⌘H / ⌘M / ⌘, / ⌘` refused).
+  `SettingsNavigation.shared.tab` selects the Settings tab.
+
+#### Keyboard map (defaults)
+
+| Action (id) | Default | Scope | Handler (file) |
+|---|---|---|---|
+| New Folder (`newFolder`), Import Photos… (`importPhotos`), Export… (`exportPhotos`) | ⇧⌘N, ⇧⌘I, ⇧⌘E | Everywhere | menu (`SloproomCommands`, `ExportCommands`) |
+| Import Lightroom Catalog…, Export Catalog…, Import Catalog…, Auto Advance After Flagging, Keyboard Shortcuts… | none (assignable) | Everywhere | menu (`SloproomCommands`, `CatalogTransferSheet`, `FlagActions`, `KeyboardSettingsView`) |
+| Undo / Redo | ⌘Z / ⇧⌘Z | Everywhere | menu (Develop → session, else responder chain) |
+| Pick / Unflag / Reject | P / U / X | Everywhere | menu (`SloproomCommands` → `FlagActions`) |
+| Rating None…★★★★★ (`rating0`–`rating5`) | 0–5 | Everywhere | menu |
+| Copy / Paste Settings, Before / After | ⇧⌘C / ⇧⌘V, `\` | Everywhere | menu |
+| Library (`libraryMode`) | G | Everywhere | menu |
+| Develop (`developMode`) | D | Everywhere | menu + dispatcher handler (AppKit's Start Dictation takes plain D) — `LibraryKeyMonitor` |
+| Select All Photos (`selectAllPhotos`) | ⌘A (was ⌥⌘A in the menu) | Library & Develop | dispatcher (`LibraryKeyMonitor`); the menu item shows no key (SwiftUI drops the duplicate of Edit > Select All) |
+| Full Screen Preview (`fullScreenPreview`) | F | Everywhere (opens from the main window, closes in full screen) | `FullScreenShortcut` (FullScreenPreview.swift) + `FullScreenPreview.installKeys` |
+| Close Full Screen Preview (`exitFullScreen`) | Esc | Full Screen | `FullScreenPreview.installKeys` |
+| Previous / Next Photo | ← / → | Develop & Full Screen | `DevelopCanvasView` (not while the sidebar list has focus), `FullScreenPreview` |
+| Zoom Fit ↔ 1:1 at the pointer, Zoom In, Zoom Out | Z, ⌘= (⌘+), ⌘- | Develop & Full Screen | `ZoomEventMonitor` (handlers per ZoomController / window) |
+| Hand Tool (hold) (`temporaryHand`) | Space | Develop & Full Screen | `ZoomEventMonitor` (key-up releases) |
+| Show / Hide Side Panels, All Panels | Tab, ⇧Tab | Develop | `DevelopPanels` (`developPanelShortcuts`) |
+| Increase / Decrease Thumbnail Size | ⌘= (⌘+) / ⌘- (step 20 pt of the 100…400 slider) | Library | `LibraryGridView` |
+| Select Previous / Next Photo, Photo Above / Below (`moveLeft/Right/Up/Down`) | ← → ↑ ↓ (⇧ extends) | Library, grid focused | `LibraryGridView` |
+| Open in Develop | Return | Library, grid focused | `LibraryGridView` |
+| Remove from Folder / Catalog (`removePhotos`) | ⌫ (⌦) | Library, grid focused | `LibraryGridView` (catalog removal asks first) |
+| Delete Folder (sidebar) (`deleteFolder`) | ⌫ | Library & Develop, sidebar list focused | `SidebarView` (asks first) |
+| Crop Tool (`toggleCropTool`), Rotate Left / Right | R, ⌘[ / ⌘] | Develop | `CropKeyMonitor` (`cropKeyboardShortcuts`, installed by `CropPanel`) |
+| Swap Portrait / Landscape, Cycle Grid Overlay, Done (Keep Crop), Cancel Crop | X, O, Return (keypad Enter), Esc | Crop Tool | `CropKeyMonitor` |
+| Show / Hide Mask Overlay, Decrease / Increase Brush Size, Delete Selected Mask, Cancel Mask / Leave Mask Tool | O, [ / ], ⌫ (⌦), Esc | Mask Tool | `MaskOverlayView` |
+| Cancel White Balance Selector (`cancelWhiteBalance`) | Esc | WB selector armed | `WhiteBalancePickerOverlay` |
+
+Not in the registry (standard controls): Return / Esc of sheet default / cancel buttons (`.keyboardShortcut(.defaultAction/.cancelAction)`),
+text-field editing keys, sidebar list navigation, the system menu items (⌘Q, ⌘W, ⌘,, Toggle Sidebar ⌥⌘S…),
+pinch / ⌘- or ⌥-scroll zoom and scroll panning (`ZoomEventMonitor`'s scroll/magnify monitor), mouse (click = zoom toggle, drag = pan).
 
 ### Folders / flags UI (`Library/Sidebar/*`, `Library/Flags/*`)
 
@@ -421,7 +477,9 @@ sRGB primaries**, extent `(0,0,W,H)`):
   gradients, brush via `BrushRasterizer` with an incremental cache), `MaskEditing` (brush point
   decimation, names, pins). Masks live in source space, so they stay on the content under crop/rotate.
 - UI: `DevelopSession+Masks` (add / update / delete / select / `finishMasking`), `MaskToolState.shared`
-  (pending creation kind, brush settings, overlay toggle), `MaskInteraction` (drag handling in source
+  (pending creation kind, brush settings, overlay toggle; **brush size is a screen size**: cursor radius
+  `brushSize × 2.5` pt at any zoom, each new stroke stores `brushRadius(in: geometry)` = that screen radius
+  in image-width units at the zoom it was painted, so zoomed-in strokes are finer; stored strokes unchanged), `MaskInteraction` (drag handling in source
   pixels via `MaskSpace` → `CanvasGeometry`), `MaskCoverageRenderer` (red overlay, off-main).
 - Harness: `Tools/masks_check.swift`.
 

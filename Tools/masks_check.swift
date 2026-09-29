@@ -274,6 +274,23 @@ struct MasksCheck {
         check(br()?.strokes.count == 2 && br()?.strokes.last?.isEraser == true, "brush: ⌥ paints an eraser stroke")
         drag(vp(0.2, 0.3), vp(0.2, 0.3), steps: 0) // click = dab
         check(br()?.strokes.count == 3 && br()?.strokes.last?.points.count == 1, "brush: click paints a dab")
+
+        // Brush size is a SCREEN size (Lightroom): zoomed in 2×, the cursor keeps its size and a
+        // stroke covers half the image width it covers at the fit size.
+        let zoomedRect = CGRect(x: rect.minX - rect.width / 2, y: rect.minY - rect.height / 2, width: rect.width * 2, height: rect.height * 2)
+        let zspace = MaskSpace(geometry: session.canvasGeometry(imageRect: zoomedRect))
+        let fitRadius = br()?.strokes.first?.radius ?? 0
+        check(abs(fitRadius - tool.brushRadius(in: space.geometry)) < 1e-9
+              && abs(space.geometry.viewLength(fromSourceWidthFraction: fitRadius) - tool.brushScreenRadius) < 1e-6,
+              "brush: stroke radius = screen size at fit (\(fmt(fitRadius)) × width = \(fmt(Double(tool.brushScreenRadius))) pt)")
+        var zui = MaskInteraction()
+        let zp = zspace.view(zspace.px(NormPoint(x: 0.6, y: 0.3)))
+        zui.dragChanged(start: zp, location: zp, space: zspace, session: session, tool: tool, erase: false)
+        zui.dragEnded(location: zp, space: zspace, session: session)
+        let zoomedRadius = br()?.strokes.last?.radius ?? 0
+        check(br()?.strokes.count == 4 && abs(zoomedRadius * 2 - fitRadius) < 1e-9,
+              "brush: at 2× zoom a stroke is half as wide in the image (\(fmt(zoomedRadius)) vs \(fmt(fitRadius)))")
+        session.undo()
         let ctx = RenderContext(fullSize: session.orientedSize, imageSize: CGSize(width: 800, height: 800 * session.orientedSize.height / session.orientedSize.width), draft: true, applyCrop: true)
         if let m = session.mask(id: brushID!), let cg = MaskRenderer.grayscaleImage(for: m, context: ctx) {
             writePNG(cg, to: outDir.appendingPathComponent("mask_ui_brush.png"))

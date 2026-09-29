@@ -37,10 +37,12 @@ struct InspectorSection<Content: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help(isExpanded ? "Collapse \(title)" : "Expand \(title)")
                 if let onReset, isExpanded {
                     Button("Reset", action: onReset)
                         .buttonStyle(.borderless)
                         .controlSize(.small)
+                        .help("Reset \(title) to defaults")
                 }
             }
             if isExpanded {

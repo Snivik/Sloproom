@@ -2,8 +2,9 @@
 //  ZoomEventMonitor.swift
 //  sloproom
 //
-//  Keyboard / trackpad input of a zoomable canvas, as local event monitors (they see events
-//  before menu key equivalents and regardless of which view has focus). Only events of the
+//  Keyboard / trackpad input of a zoomable canvas. Keys are registry actions (scope "Develop &
+//  Full Screen", handlers registered with the shortcut dispatcher, keys = the user's bindings;
+//  defaults below); trackpad / wheel input is a local event monitor. Only events of the
 //  canvas' own window are handled; keys yield while a text field is edited or a sheet is up.
 //
 //    Z            toggle Fit ↔ zoom (1:1 by default) at the mouse position
@@ -12,7 +13,8 @@
 //    pinch        zoom around the cursor  ⌘/⌥ + scroll  zoom around the cursor
 //    two-finger scroll / wheel            pan (when zoomed)
 //
-//  `isActive` gates everything (e.g. Develop mode only; the Library uses ⌘= / ⌘- itself).
+//  `isActive` gates everything (e.g. Develop mode only; the Library uses ⌘= / ⌘- for
+//  thumbnail size — a different scope, see ShortcutModel).
 //
 
 import AppKit
@@ -34,16 +36,42 @@ private struct ZoomEventMonitor: ViewModifier {
         content
             .onAppear { install() }
             .onDisappear { remove() }
+            .shortcutHandlers { [zoom, isActive] in Self.keyHandlers(zoom: zoom, isActive: isActive) }
             // A space released while another app is frontmost never reaches us.
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                 zoom.spaceHeld = false
+                ShortcutDispatcher.shared.releaseHeldKeys()
             }
+    }
+
+    /// Z / ⌘= / ⌘- / Space. Consumed even while zoom is locked (crop tool), as before.
+    private static func keyHandlers(zoom: ZoomController, isActive: @escaping @MainActor () -> Bool) -> [ShortcutHandler] {
+        let mine: @MainActor (NSEvent) -> Bool = { [weak zoom] event in
+            event.window != nil && event.window === zoom?.window && isActive()
+        }
+        return [
+            ShortcutHandler(.zoomToggle, when: mine) { [weak zoom] _ in
+                guard let zoom, !zoom.isLocked else { return }
+                zoom.toggle(at: zoom.mouseLocation)
+            },
+            ShortcutHandler(.zoomIn, when: mine) { [weak zoom] _ in
+                guard let zoom, !zoom.isLocked else { return }
+                zoom.step(zoomIn: true, anchor: zoom.mouseLocation)
+            },
+            ShortcutHandler(.zoomOut, when: mine) { [weak zoom] _ in
+                guard let zoom, !zoom.isLocked else { return }
+                zoom.step(zoomIn: false, anchor: zoom.mouseLocation)
+            },
+            ShortcutHandler(.temporaryHand, when: mine, release: { [weak zoom] in zoom?.spaceHeld = false }) { [weak zoom] _ in
+                zoom?.spaceHeld = true
+            },
+        ]
     }
 
     private func install() {
         guard monitor == nil else { return }
         let zoom = zoom, isActive = isActive
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .scrollWheel, .magnify]) { event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { event in
             nonisolated(unsafe) let event = event   // local monitors run on the main thread
             let handled = MainActor.assumeIsolated { Self.handle(event, zoom: zoom, isActive: isActive) }
             return handled ? nil : event
@@ -66,14 +94,8 @@ private struct ZoomEventMonitor: ViewModifier {
     }
 
     private static func handle(_ event: NSEvent, zoom: ZoomController, isActive: () -> Bool) -> Bool {
-        guard let (window, location) = target(event, zoom: zoom), window === zoom.window, isActive() else {
-            if event.type == .keyUp, event.keyCode == 49 { zoom.spaceHeld = false }
-            return false
-        }
+        guard let (window, location) = target(event, zoom: zoom), window === zoom.window, isActive() else { return false }
         switch event.type {
-        case .keyDown, .keyUp:
-            guard window.attachedSheet == nil, !TextInputGuard.isEditingText else { return false }
-            return handleKey(event, zoom: zoom)
         case .scrollWheel:
             return handleScroll(event, location: location, zoom: zoom, window: window)
         case .magnify:
@@ -85,32 +107,6 @@ private struct ZoomEventMonitor: ViewModifier {
         default:
             return false
         }
-    }
-
-    private static func handleKey(_ event: NSEvent, zoom: ZoomController) -> Bool {
-        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if event.keyCode == 49, mods.isEmpty || event.type == .keyUp {   // space
-            zoom.spaceHeld = event.type == .keyDown
-            return true
-        }
-        guard event.type == .keyDown else { return false }
-        let key = event.charactersIgnoringModifiers ?? ""
-        if mods.isEmpty, key.lowercased() == "z" {
-            if !event.isARepeat, !zoom.isLocked { zoom.toggle(at: zoom.mouseLocation) }
-            return true
-        }
-        if mods == .command || mods == [.command, .shift] {
-            switch key {
-            case "=", "+":
-                if !zoom.isLocked { zoom.step(zoomIn: true, anchor: zoom.mouseLocation) }
-                return true
-            case "-", "_":
-                if !zoom.isLocked { zoom.step(zoomIn: false, anchor: zoom.mouseLocation) }
-                return true
-            default: return false
-            }
-        }
-        return false
     }
 
     private static func handleScroll(_ event: NSEvent, location: NSPoint, zoom: ZoomController, window: NSWindow) -> Bool {

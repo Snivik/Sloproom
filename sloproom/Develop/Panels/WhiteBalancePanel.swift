@@ -21,7 +21,8 @@ struct WhiteBalancePanel: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(session.isPickingWhiteBalance ? Color.accentColor : .primary)
-                .help("White balance selector: click a neutral area of the photo")
+                .help("White Balance Selector: click a neutral area of the photo" + ShortcutStore.shared.hint("cancels", .cancelWhiteBalance))
+                .accessibilityLabel("White Balance Selector")
                 .disabled(!isRAW)
 
                 Picker("WB", selection: modeBinding) {
@@ -30,6 +31,7 @@ struct WhiteBalancePanel: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .segmentHelp(["As Shot: the camera's white balance", "Custom: Temp and Tint below"])
 
                 Button("Auto") { session.setWhiteBalance(from: .auto) }
                     .controlSize(.small)

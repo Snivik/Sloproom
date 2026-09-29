@@ -2,9 +2,10 @@
 //  SloproomCommands.swift
 //  sloproom
 //
-//  Menu bar. Single-letter shortcuts (P / U / X / G / D, 0-5) are real menu key equivalents
-//  without modifiers; `TextInputGuard` makes them type the letter instead while a text field
-//  is being edited.
+//  Menu bar. Items with a shortcut are `ShortcutMenuButton`s: the key comes from the user's
+//  bindings (ShortcutStore; Settings > Keyboard). Single-letter shortcuts (P / U / X / G / D,
+//  0-5) are real menu key equivalents without modifiers; `TextInputGuard` makes them type the
+//  letter instead while a text field is being edited.
 //
 
 import AppKit
@@ -12,68 +13,70 @@ import SwiftUI
 
 struct SloproomCommands: Commands {
     let model: AppModel
+    /// Bumped by ShortcutStore on every change: Commands re-render on AppStorage changes (not on
+    /// Observable changes), so SwiftUI's own menu model follows the bindings. SwiftUI doesn't
+    /// push a changed key equivalent into an existing NSMenuItem though; `ShortcutMenuSync`
+    /// patches the items.
+    @AppStorage(ShortcutStore.revisionKey) private var shortcutRevision = 0
 
     var body: some Commands {
+        let _ = shortcutRevision
         CommandGroup(after: .newItem) {
-            Button("New Folder") { FolderActions.newFolderFromMenu(model: model) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+            ShortcutMenuButton(.newFolder) { FolderActions.newFolderFromMenu(model: model) }
             Divider()
-            Button("Import Photos…") { model.presentedSheet = .importPhotos }
-                .keyboardShortcut("i", modifiers: [.command, .shift])
-            Button("Import Lightroom Catalog…") { model.presentedSheet = .importLightroom }
+            ShortcutMenuButton(.importPhotos) { model.presentedSheet = .importPhotos }
+            ShortcutMenuButton(.importLightroomCatalog) { model.presentedSheet = .importLightroom }
             Button("Add Folder in Place (Dev)…") { DevTools.addFolderInPlace(model: model) }
         }
 
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") {
+            ShortcutMenuButton(.undo) {
                 if model.mode == .develop, let s = model.developSession { s.undo() } else { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
             }
-            .keyboardShortcut("z", modifiers: .command)
-            Button("Redo") {
+            ShortcutMenuButton(.redo) {
                 if model.mode == .develop, let s = model.developSession { s.redo() } else { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
             }
-            .keyboardShortcut("z", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .textEditing) {
-            Button("Select All Photos") { model.selectAll() }
-                .keyboardShortcut("a", modifiers: [.command, .option])
+            ShortcutMenuButton(.selectAllPhotos) { model.selectAll() }
         }
 
         CommandMenu("Photo") {
-            letterButton("Pick", "p") { FlagActions.setFlag(.pick, model: model) }
-            letterButton("Unflag", "u") { FlagActions.setFlag(.none, model: model) }
-            letterButton("Reject", "x") { FlagActions.setFlag(.reject, model: model) }
-            AutoAdvanceToggle()
-            Divider()
-            Menu("Set Rating") {
-                ForEach(0...5, id: \.self) { stars in
-                    letterButton(stars == 0 ? "None" : String(repeating: "★", count: stars),
-                                 Character(String(stars))) { model.setRating(stars) }
-                }
-            }
-            Divider()
-            Button("Copy Settings") { model.copyDevelopSettings() }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-            Button("Paste Settings") { model.pasteDevelopSettings() }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
-            letterButton("Before / After", "\\") { model.developSession?.showBefore.toggle() }
+            photoMenu
         }
 
         CommandGroup(before: .sidebar) {
-            letterButton("Library", "g") { model.mode = .library }
-            letterButton("Develop", "d") { model.mode = .develop }
+            ShortcutMenuButton(.libraryMode) { model.mode = .library }
+            ShortcutMenuButton(.developMode) { model.mode = .develop }
+            Divider()
+            KeyboardShortcutsMenuButton()
+            Divider()
+        }
+
+        CommandGroup(before: .help) {
+            KeyboardShortcutsMenuButton()
             Divider()
         }
     }
 
-    /// A menu item with a no-modifier shortcut that yields to text editing.
-    private func letterButton(_ title: String, _ key: Character, action: @escaping () -> Void) -> some View {
-        Button(title) {
-            if TextInputGuard.forwardIfEditing(String(key)) { return }
-            action()
+    @ViewBuilder private var photoMenu: some View {
+        ShortcutMenuButton(.pick) { FlagActions.setFlag(.pick, model: model) }
+        ShortcutMenuButton(.unflag) { FlagActions.setFlag(.none, model: model) }
+        ShortcutMenuButton(.reject) { FlagActions.setFlag(.reject, model: model) }
+        AutoAdvanceToggle()
+        Divider()
+        Menu("Set Rating") {
+            ForEach(0...5, id: \.self) { stars in
+                ShortcutMenuButton(.rating(stars), title: stars == 0 ? "None" : String(repeating: "★", count: stars)) {
+                    model.setRating(stars)
+                }
+            }
         }
-        .keyboardShortcut(KeyEquivalent(key), modifiers: [])
+        Divider()
+        ShortcutMenuButton(.copySettings) { model.copyDevelopSettings() }
+        ShortcutMenuButton(.pasteSettings) { model.pasteDevelopSettings() }
+        ShortcutMenuButton(.beforeAfter) { model.developSession?.showBefore.toggle() }
     }
 }
 

@@ -165,7 +165,7 @@ struct LightroomImportSheet: View {
                     Text("Reading catalog…")
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
-                footer { Button("Cancel") { model.cancel(); dismiss() }.keyboardShortcut(.cancelAction) }
+                footer { Button("Cancel") { model.cancel(); dismiss() }.keyboardShortcut(.cancelAction).help("Stop reading and close (Esc)") }
             case .preview:
                 if let plan = model.plan { previewView(model, plan: plan, options: $model.options) }
             case .importing:
@@ -174,14 +174,14 @@ struct LightroomImportSheet: View {
                     Text(model.progress.message).font(.callout).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 120)
-                footer { Button("Cancel Import") { model.cancel() }.keyboardShortcut(.cancelAction) }
+                footer { Button("Cancel Import") { model.cancel() }.keyboardShortcut(.cancelAction).help("Stop the import (Esc)") }
             case .done:
                 if let result = model.result, let plan = model.plan { doneView(result: result, plan: plan) }
             case .failed(let message):
                 Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
                 footer {
-                    Button("Choose Another…") { model.chooseCatalog() }
-                    Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Choose Another…") { model.chooseCatalog() }.help("Pick a different Lightroom catalog (.lrcat)")
+                    Button("Close") { dismiss() }.keyboardShortcut(.cancelAction).help("Close (Esc)")
                 }
             }
         }
@@ -198,8 +198,9 @@ struct LightroomImportSheet: View {
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             footer {
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).help("Close (Esc)")
                 Button("Choose Catalog…") { model.chooseCatalog() }.keyboardShortcut(.defaultAction)
+                    .help("Pick a Lightroom Classic catalog (.lrcat) to preview what will be imported")
             }
         }
     }
@@ -253,20 +254,29 @@ struct LightroomImportSheet: View {
                     Text("Options").font(.headline)
                     Picker("Photos", selection: options.scope) {
                         Text("All photos in catalog").tag(LightroomImportOptions.PhotoScope.all)
+                            .help("Every photo of the Lightroom catalog, also those in no collection")
                         Text("Only photos in collections").tag(LightroomImportOptions.PhotoScope.inCollections)
+                            .help("Only photos that are in at least one collection")
                     }
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
+                    .help("Import every photo of the catalog, or only those in collections")
                     Toggle("Import pick / reject flags", isOn: options.importFlags)
+                        .help("Copy Lightroom's pick / reject flags")
                     Toggle("Import star ratings", isOn: options.importRatings)
+                        .help("Copy Lightroom's star ratings")
                     if snapshot.videoCount > 0 {
                         Toggle("Include videos", isOn: options.includeVideos)
+                            .help("Also add the catalog's videos")
                     }
                     if let quick, !quick.imageIDs.isEmpty {
                         Toggle("Include Quick Collection (\(quick.imageIDs.count))", isOn: options.includeQuickCollection)
+                            .help("Also create a folder for Lightroom's Quick Collection")
                     }
                     Toggle("Put everything in a new folder:", isOn: options.createContainerFolder)
+                        .help("Create the imported folders inside one new top-level folder")
                     TextField("Folder name", text: options.containerName)
+                        .help("Name of the new top-level folder")
                         .disabled(!options.wrappedValue.createContainerFolder)
                         .frame(maxWidth: 200)
                         .padding(.leading, 20)
@@ -297,10 +307,12 @@ struct LightroomImportSheet: View {
 
             HStack {
                 Button("Choose Another…") { model.chooseCatalog() }
+                    .help("Pick a different Lightroom catalog (.lrcat)")
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).help("Close without importing (Esc)")
                 Button("Import \(plan.photos.count.formatted()) Photos") { model.startImport() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Add the photos and folders to the catalog (Return); files are not copied")
                     .disabled(options.wrappedValue.createContainerFolder
                               && options.wrappedValue.containerName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -329,7 +341,7 @@ struct LightroomImportSheet: View {
                     .padding(.top, 4)
             }
             footer {
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).help("Close (Return)")
             }
         }
     }

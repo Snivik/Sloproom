@@ -3,7 +3,7 @@
 //  sloproom
 //
 //  Entry points of the Export sheet:
-//    - File > Export… (⇧⌘E): `ExportCommands(model:)` in the App scene's `.commands`.
+//    - File > Export… (⇧⌘E by default, ShortcutAction.exportPhotos): `ExportCommands(model:)` in the App scene's `.commands`.
 //    - grid context menu: `ExportMenuButton(ids:model:)` ("Export N Photos…").
 //    - the sheet itself: `.exportSheet(model:)` on the main window.
 //  Targets are `model.actionTargetIDs` read when the item is chosen (Library selection, Develop's
@@ -24,8 +24,7 @@ struct ExportCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {   // after File > Import… items (SloproomCommands)
-            Button("Export…") { ExportController.shared.present(ids: model.actionTargetIDs, model: model) }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+            ShortcutMenuButton(.exportPhotos) { ExportController.shared.present(ids: model.actionTargetIDs, model: model) }
                 .disabled(targetCount == 0)
         }
     }

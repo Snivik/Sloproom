@@ -99,6 +99,18 @@ Snapshots must also be written inside the container. View them with the Read too
   Catalog transfer (`CatalogTransfer/CatalogTransferDevScript.swift`): `catalog export <file> | inspect <file> |
   replace | close | snapshot <png> | dump | roots | relink <old root path> => <new folder> | menustate`, e.g.
   `catalog export $C/out/x.sloproomcatalog; catalog close; catalog inspect $C/out/x.sloproomcatalog; catalog snapshot $C/summary.png; catalog replace; catalog snapshot $C/done.png; catalog close; catalog dump`.
+  Keyboard shortcuts / tooltips (`Shortcuts/ShortcutsDevScript.swift`): `shortcut set <action id> <spec>`
+  (e.g. `shortcut set pick k`, `shortcut set exportPhotos none`), `shortcut record <id> <spec>` (as typed into
+  Settings > Keyboard: a conflict becomes a pending "Already used by …"), `shortcut confirm|cancel`,
+  `shortcut reset <id>|resetall`, `shortcut dump` (bindings, conflicts, which actions have handlers),
+  `shortcut last` (the dispatcher's last decision, e.g. `⇧⌘= → thumbnailLarger in library`),
+  `shortcut search <text>`, `settings previews|drives|keyboard` (selects the tab of an open Settings window;
+  open it with `menu Help/Keyboard Shortcuts…`), `menutree <Top menu>` (items + key equivalents),
+  `toolbar`, `segtips`, `cellsize`, `brushdump` (brush size, cursor radius, stroke radius at the current zoom).
+  `key` knows the US key codes of `= - [ ] \ ; ' , . /` and 0-9 (shortcut matching uses the key code), e.g.
+  `key cmd+=`, `key cmd+shift+=`, `key cmd+[`, `key ]`.
+  Shortcut rebinding / brush size / thumbnail size write the app's (shared!) UserDefaults: `shortcut resetall` and
+  restore `library.cellSize` when you are done.
   Synthesized keys are delivered to the main window, but menu key equivalents only match while the app
   is active: run `activate` first, and don't use the Mac meanwhile (focus stealing makes key tests flaky).
   A menu item that opens a modal alert blocks the script (the alert's run loop doesn't run DevScript).
@@ -138,6 +150,20 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `catalog_transfer_check` | `sloproom/CatalogTransfer/CatalogTransfer.swift sloproom/LightroomImport/RootAccess.swift` | `[catalog-dir to COPY] [out-dir]` (default: the realistic catalog copy `…/Data/tmp/catalog/pristine`, `/private/tmp/claude-501/catalog-out/run`) |
 | `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
+| `shortcuts_check` | `HARNESS_NO_DEFAULT=1`, `sloproom/Shortcuts/ShortcutModel.swift sloproom/Shortcuts/ShortcutStore.swift` | – (defaults, overrides persist, conflicts per scope, resolution, reset, formatting; own UserDefaults suite) |
+
+## ax_help_audit.swift (tooltips / accessibility labels)
+
+Out-of-process Accessibility client (SwiftUI only exposes its full accessibility tree to one; the terminal
+needs Accessibility permission, the app stays sandboxed). Lists every button / checkbox / segment / pop-up /
+slider / menu button without a tooltip, and icon-only controls without a label (or an SF Symbol name as label):
+
+```sh
+xcrun swiftc -O Tools/ax_help_audit.swift -o /private/tmp/claude-501/<you>/ax_help_audit
+/private/tmp/claude-501/<you>/ax_help_audit <app pid> [window title substring] [-v]
+/private/tmp/claude-501/<you>/ax_help_audit <app pid> -press "Edit Presets…"   # AXPress a control (opens sheets without DevScript)
+```
+Skips AppKit chrome it can't annotate (window buttons, scroll bars, List outline disclosure triangles).
 
 e.g. `Tools/harness.sh /private/tmp/claude-501/<you>/crop_check Tools/crop_check.swift sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift`
 (the harnesses compile in parallel fine; ~1–3 min each with `-O`).

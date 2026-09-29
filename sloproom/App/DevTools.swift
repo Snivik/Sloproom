@@ -167,6 +167,7 @@ enum DevScript {
                 case let c where StripDevScript.commands.contains(c): StripDevScript.run(c, arg, model: model)   // Library/Flags/StripDevScript.swift
                 case let c where MaskDevScript.commands.contains(c): MaskDevScript.run(c, arg, session: model.developSession)
                 case let c where ZoomDevScript.commands.contains(c): await ZoomDevScript.run(c, arg, model: model)   // Develop/Zoom
+                case let c where ShortcutsDevScript.commands.contains(c): await ShortcutsDevScript.run(c, arg, model: model)   // Shortcuts/
                 case "key", "type", "click", "dclick", "dump", "menus", "action", "row", "whichmenu": FoldersDevScript.run(parts[0], arg, model: model)
                 default: print("DevScript: unknown command \(command)")
                 }

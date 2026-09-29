@@ -39,7 +39,7 @@ final class FullScreenPreview {
 
     @ObservationIgnored private(set) var window: NSWindow?
     @ObservationIgnored private weak var model: AppModel?
-    @ObservationIgnored private var keyMonitor: Any?
+    @ObservationIgnored private let shortcutToken = UUID()
     @ObservationIgnored private var savedPresentation: NSApplication.PresentationOptions = []
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var direction = 1
@@ -101,8 +101,7 @@ final class FullScreenPreview {
     func close() {
         guard isShowing else { return }
         isShowing = false
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        keyMonitor = nil
+        ShortcutDispatcher.shared.unregister(shortcutToken)
         NSApp.presentationOptions = savedPresentation
         window?.orderOut(nil)
         window?.contentView = nil
@@ -118,29 +117,18 @@ final class FullScreenPreview {
         NSApp.windows.first { $0.isVisible && !($0 is NSPanel) }?.makeKeyAndOrderFront(nil)
     }
 
+    /// Keys of the full-screen window (registry actions; defaults ← / → / F / Esc).
     private func installKeys() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            nonisolated(unsafe) let event = event
-            let handled = MainActor.assumeIsolated { self?.handleKey(event) ?? false }
-            return handled ? nil : event
+        let mine: @MainActor (NSEvent) -> Bool = { [weak self] event in
+            guard let self, self.isShowing, let w = self.window else { return false }
+            return event.window === w
         }
-    }
-
-    private func handleKey(_ event: NSEvent) -> Bool {
-        guard isShowing, let window, event.window === window else { return false }
-        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard mods.isEmpty else { return false }
-        switch event.keyCode {
-        case 53: close(); return true                              // Esc
-        case 123: move(by: -1); return true                        // ←
-        case 124: move(by: 1); return true                         // →
-        default: break
-        }
-        if event.charactersIgnoringModifiers?.lowercased() == "f" {
-            if !event.isARepeat { close() }
-            return true
-        }
-        return false
+        ShortcutDispatcher.shared.register(shortcutToken, [
+            ShortcutHandler(.exitFullScreen, when: mine) { [weak self] _ in self?.close() },
+            ShortcutHandler(.fullScreenPreview, when: mine) { [weak self] _ in self?.close() },
+            ShortcutHandler(.previousPhoto, when: mine) { [weak self] _ in self?.move(by: -1) },
+            ShortcutHandler(.nextPhoto, when: mine) { [weak self] _ in self?.move(by: 1) },
+        ])
     }
 
     func move(by delta: Int) {
@@ -334,7 +322,7 @@ struct FullScreenPreviewView: View {
 }
 
 extension View {
-    /// F opens the full-screen preview from the main window (Library and Develop).
+    /// F (registry action `fullScreenPreview`) opens the full-screen preview from the main window (Library and Develop).
     func fullScreenPreviewShortcut(model: AppModel) -> some View {
         modifier(FullScreenShortcut(model: model))
     }
@@ -342,30 +330,12 @@ extension View {
 
 private struct FullScreenShortcut: ViewModifier {
     let model: AppModel
-    @State private var monitor: Any?
 
     func body(content: Content) -> some View {
-        content
-            .onAppear {
-                guard monitor == nil else { return }
-                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [model] event in
-                    nonisolated(unsafe) let event = event
-                    let handled = MainActor.assumeIsolated { Self.handle(event, model: model) }
-                    return handled ? nil : event
-                }
-            }
-            .onDisappear {
-                if let monitor { NSEvent.removeMonitor(monitor) }
-                monitor = nil
-            }
-    }
-
-    private static func handle(_ event: NSEvent, model: AppModel) -> Bool {
-        guard let window = event.window, !window.isSheet, !(window is NSPanel), window.attachedSheet == nil,
-              window !== FullScreenPreview.shared.window, !FullScreenPreview.shared.isShowing,
-              !TextInputGuard.isEditingText, event.charactersIgnoringModifiers?.lowercased() == "f",
-              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
-        if !event.isARepeat { FullScreenPreview.shared.show(model: model) }
-        return true
+        content.shortcutHandlers { [model] in
+            [ShortcutHandler(.fullScreenPreview, when: { event in
+                event.window === ShortcutDispatcher.shared.mainWindow && !FullScreenPreview.shared.isShowing
+            }) { _ in FullScreenPreview.shared.show(model: model) }]
+        }
     }
 }

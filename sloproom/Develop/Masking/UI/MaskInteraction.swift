@@ -122,7 +122,7 @@ struct MaskInteraction {
 
     private func beginDrag(at v: CGPoint, space: MaskSpace, session: DevelopSession, tool: MaskToolState, erase: Bool) -> DragOp {
         if let kind = tool.pendingKind {
-            return kind == .brush ? beginPaint(nil, tool: tool, erase: erase) : .create(kind, nil)
+            return kind == .brush ? beginPaint(nil, tool: tool, erase: erase, space: space) : .create(kind, nil)
         }
         let selected = session.selectedMask
         if let m = selected, let hit = Self.handleHit(m, at: v, space: space) { return hit }
@@ -132,13 +132,13 @@ struct MaskInteraction {
             session.selectMask(mask.id)
             return mask.brush != nil ? .idle : .move(mask.id, original: mask, from: space.pixel(fromView: v))
         }
-        if let m = selected, m.brush != nil { return beginPaint(m.id, tool: tool, erase: erase) }
+        if let m = selected, m.brush != nil { return beginPaint(m.id, tool: tool, erase: erase, space: space) }
         return .idle
     }
 
-    private func beginPaint(_ id: UUID?, tool: MaskToolState, erase: Bool) -> DragOp {
+    private func beginPaint(_ id: UUID?, tool: MaskToolState, erase: Bool, space: MaskSpace) -> DragOp {
         var stroke = BrushStroke()
-        stroke.radius = tool.brushRadius
+        stroke.radius = tool.brushRadius(in: space.geometry)   // screen size → image units at this zoom
         stroke.feather = tool.brushFeather
         stroke.flow = tool.brushFlow
         stroke.isEraser = erase

@@ -83,10 +83,22 @@ struct DevelopCanvasView: View {
         .focused($isFocused)
         .focusEffectDisabled()
         .onAppear { isFocused = true }
-        .onKeyPress(.leftArrow) { model.moveFocus(by: -1); return .handled }
-        .onKeyPress(.rightArrow) { model.moveFocus(by: 1); return .handled }
+        .shortcutHandlers { [model] in Self.navigationHandlers(model: model) }
         .onChange(of: session.activeTool, initial: true) { _, tool in zoom.isLocked = tool == .crop }
         .zoomEventMonitor(zoom) { [model] in model.mode == .develop && !FullScreenPreview.shared.isShowing }
+    }
+
+    /// ← / → previous / next photo (registry actions, scope Develop & Full Screen). Not while
+    /// the folder sidebar has focus (arrows navigate it).
+    private static func navigationHandlers(model: AppModel) -> [ShortcutHandler] {
+        let available: @MainActor (NSEvent) -> Bool = { event in
+            guard let w = event.window, w === ShortcutDispatcher.shared.mainWindow, model.mode == .develop else { return false }
+            return !(w.firstResponder is NSTableView)
+        }
+        return [
+            ShortcutHandler(.previousPhoto, when: available) { _ in model.moveFocus(by: -1) },
+            ShortcutHandler(.nextPhoto, when: available) { _ in model.moveFocus(by: 1) },
+        ]
     }
 
     /// Where the whole displayed image is drawn (zoomed / panned); aspect-fit until the zoom

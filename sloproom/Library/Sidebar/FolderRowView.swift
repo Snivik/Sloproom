@@ -130,7 +130,7 @@ struct FoldersSectionHeader: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.borderless)
-            .help("New Folder (⇧⌘N)")
+            .iconHelp("New Folder", shortcut: .newFolder)
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())

@@ -40,6 +40,7 @@ struct CropPresetsEditor: View {
                 ratioField("H", $newH)
                 Button("Add", action: add)
                     .disabled(!isValid(name: newName, w: newW, h: newH))
+                    .help("Add a preset with this name and ratio")
             }
 
             HStack {
@@ -47,6 +48,7 @@ struct CropPresetsEditor: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    .help("Close (presets are saved as you type)")
             }
         }
         .padding(16)
@@ -58,6 +60,7 @@ struct CropPresetsEditor: View {
     private func row(_ preset: Binding<CropPreset>) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+                .help("Drag to reorder").accessibilityLabel("Reorder")
             TextField("Name", text: preset.name)
             ratioField("W", preset.ratioW)
             Text(":")
@@ -68,7 +71,7 @@ struct CropPresetsEditor: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
-            .help("Delete preset")
+            .iconHelp("Delete preset")
         }
     }
 

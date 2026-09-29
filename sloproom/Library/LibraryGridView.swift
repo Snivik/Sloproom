@@ -5,8 +5,10 @@
 //  Thumbnail grid for the current source.
 //  Mouse: click / ⌘-click / ⇧-click select, double-click opens Develop, drag photos onto a
 //  sidebar folder (dragging a selected photo drags the whole selection).
-//  Keys (grid focused): arrows move (up/down by row), ⇧-arrows extend, Return opens Develop, ⌫ removes from the shown folder (or from the catalog, confirmed).
-//  ⌘A / D: LibraryKeyMonitor.swift; P / U / X / G are menu key equivalents (FlagActions.swift).
+//  Keys (registry actions via the shortcut dispatcher; defaults): grid focused — arrows move
+//  (up/down by row), ⇧-arrows extend, Return opens Develop, ⌫ removes from the shown folder (or
+//  from the catalog, confirmed); anywhere in Library — ⌘= / ⌘- (also ⌘+) step the thumbnail
+//  size slider. ⌘A / D: LibraryKeyMonitor.swift; P / U / X / G are menu key equivalents.
 //
 
 import AppKit
@@ -14,9 +16,9 @@ import SwiftUI
 
 struct LibraryGridView: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("library.cellSize") private var cellSize: Double = 180
+    @AppStorage(LibraryGridView.cellSizeKey) private var cellSize: Double = 180
     @FocusState private var isGridFocused: Bool
-    @State private var pendingCatalogRemoval: [Int64]?
+    @State private var keys = GridKeyState()
 
     private let spacing: CGFloat = 6
     private let padding: CGFloat = 10
@@ -33,10 +35,11 @@ struct LibraryGridView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { GridFilterBar() }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+        .shortcutHandlers { [model, keys] in Self.keyHandlers(model: model, keys: keys) }
         .confirmationDialog(removalTitle, isPresented: Binding(
-            get: { pendingCatalogRemoval != nil },
-            set: { if !$0 { pendingCatalogRemoval = nil } }
-        ), presenting: pendingCatalogRemoval) { ids in
+            get: { keys.pendingCatalogRemoval != nil },
+            set: { if !$0 { keys.pendingCatalogRemoval = nil } }
+        ), presenting: keys.pendingCatalogRemoval) { ids in
             Button("Remove from Catalog", role: .destructive) { FolderActions.removeFromCatalog(ids, model: model) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
@@ -73,22 +76,8 @@ struct LibraryGridView: View {
             .focusable()
             .focused($isGridFocused)
             .focusEffectDisabled()
-            .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
-                let delta = switch press.key {
-                case .leftArrow: -1
-                case .rightArrow: 1
-                case .upArrow: -columns
-                default: columns
-                }
-                moveFocus(by: delta, extend: press.modifiers.contains(.shift))
-                return .handled
-            }
-            .onKeyPress(.return) {
-                guard let id = model.focusedPhotoID else { return .ignored }
-                model.openInDevelop(id)
-                return .handled
-            }
-            .onDeleteCommand { deleteKey() }
+            .onChange(of: isGridFocused, initial: true) { _, focused in keys.isGridFocused = focused }
+            .onChange(of: columns, initial: true) { _, n in keys.columns = n }
             .onChange(of: model.focusedPhotoID) { _, id in
                 guard let id else { return }
                 withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
@@ -100,8 +89,46 @@ struct LibraryGridView: View {
         }
     }
 
+    // MARK: Keys
+
+    static let cellSizeKey = "library.cellSize"
+    static let cellSizeRange: ClosedRange<Double> = 100...400
+    static let cellSizeStep: Double = 20
+
+    private static func keyHandlers(model: AppModel, keys: GridKeyState) -> [ShortcutHandler] {
+        let focused: @MainActor (NSEvent) -> Bool = { _ in keys.isGridFocused }
+        func move(_ action: ShortcutAction, _ delta: @escaping @MainActor () -> Int) -> ShortcutHandler {
+            ShortcutHandler(action, when: focused) { event in
+                let extend = event.modifierFlags.contains(.shift) && !(ShortcutStore.shared.binding(for: action)?.modifiers.contains(.shift) ?? false)
+                moveFocus(by: delta(), extend: extend, model: model)
+            }
+        }
+        return [
+            move(.moveLeft) { -1 },
+            move(.moveRight) { 1 },
+            move(.moveUp) { -keys.columns },
+            move(.moveDown) { keys.columns },
+            ShortcutHandler(.openInDevelop, when: { _ in keys.isGridFocused && model.focusedPhotoID != nil }) { _ in
+                if let id = model.focusedPhotoID { model.openInDevelop(id) }
+            },
+            ShortcutHandler(.removePhotos, when: { _ in keys.isGridFocused && !model.actionTargetIDs.isEmpty }) { _ in
+                deleteKey(model: model, keys: keys)
+            },
+            ShortcutHandler(.thumbnailLarger) { _ in stepCellSize(up: true) },
+            ShortcutHandler(.thumbnailSmaller) { _ in stepCellSize(up: false) },
+        ]
+    }
+
+    /// ⌘= / ⌘-: one step of the size slider.
+    static func stepCellSize(up: Bool) {
+        let d = UserDefaults.standard
+        let current = d.object(forKey: cellSizeKey) as? Double ?? 180
+        let next = ((current / cellSizeStep).rounded() + (up ? 1 : -1)) * cellSizeStep
+        d.set(min(max(next, cellSizeRange.lowerBound), cellSizeRange.upperBound), forKey: cellSizeKey)
+    }
+
     /// Arrow keys; with ⇧ the selection extends from the anchor to the new focus.
-    private func moveFocus(by delta: Int, extend: Bool) {
+    private static func moveFocus(by delta: Int, extend: Bool, model: AppModel) {
         guard extend, let current = model.focusedPhotoID, let i = model.index(of: current) else {
             model.moveFocus(by: delta)
             return
@@ -111,13 +138,13 @@ struct LibraryGridView: View {
     }
 
     /// ⌫: non-destructive removal from the shown folder; elsewhere ask to remove from the catalog.
-    private func deleteKey() {
+    private static func deleteKey(model: AppModel, keys: GridKeyState) {
         let ids = model.actionTargetIDs
         guard !ids.isEmpty else { return }
         if model.shownFolderID != nil {
             FolderActions.removeFromShownFolder(ids, model: model)
         } else {
-            pendingCatalogRemoval = ids
+            keys.pendingCatalogRemoval = ids
         }
     }
 
@@ -155,7 +182,7 @@ struct LibraryGridView: View {
         Divider()
         ExportMenuButton(ids: ids, model: model)
         Divider()
-        Button("Remove from Catalog…") { pendingCatalogRemoval = ids }
+        Button("Remove from Catalog…") { keys.pendingCatalogRemoval = ids }
     }
 
     private func flag(_ photo: Photo, _ flag: Flag) {
@@ -164,15 +191,17 @@ struct LibraryGridView: View {
     }
 
     private var removalTitle: String {
-        let n = pendingCatalogRemoval?.count ?? 0
+        let n = keys.pendingCatalogRemoval?.count ?? 0
         return n == 1 ? "Remove this photo from the catalog?" : "Remove \(n) photos from the catalog?"
     }
 
     private var bottomBar: some View {
         HStack {
             Spacer()
-            Image(systemName: "square.grid.3x3").foregroundStyle(.secondary)
-            Slider(value: $cellSize, in: 100...400).frame(width: 140).controlSize(.small)
+            Image(systemName: "square.grid.3x3").foregroundStyle(.secondary).accessibilityHidden(true)
+            Slider(value: $cellSize, in: Self.cellSizeRange).frame(width: 140).controlSize(.small)
+                .help(ShortcutStore.shared.help("Thumbnail Size", [.thumbnailSmaller, .thumbnailLarger]))
+                .accessibilityLabel("Thumbnail Size")
         }
         .font(.callout)
         .padding(.horizontal, 12)
@@ -188,8 +217,19 @@ struct LibraryGridView: View {
         } actions: {
             if model.totalPhotoCount == 0 {
                 Button("Import Photos…") { model.presentedSheet = .importPhotos }
+                    .help(ShortcutStore.shared.help("Import from a camera card or folder", .importPhotos))
                 Button("Add Folder in Place (Dev)…") { DevTools.addFolderInPlace(model: model) }
+                    .help("Add every photo of a folder without copying (developer tool)")
             }
         }
     }
+}
+
+/// State the grid's key handlers share with the view (focus, column count for ↑ / ↓, the
+/// pending "remove from catalog" confirmation).
+@Observable
+final class GridKeyState {
+    @ObservationIgnored var isGridFocused = false
+    @ObservationIgnored var columns = 1
+    var pendingCatalogRemoval: [Int64]?
 }

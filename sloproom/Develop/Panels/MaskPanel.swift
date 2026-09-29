@@ -14,6 +14,7 @@ struct MaskPanel: View {
     @State private var tool = MaskToolState.shared
     @State private var renamingID: UUID?
     @State private var draftName = ""
+    private var store: ShortcutStore { .shared }
 
     var body: some View {
         InspectorSection("Masks") {
@@ -29,11 +30,12 @@ struct MaskPanel: View {
                 }
                 if session.activeTool == .mask {
                     HStack {
-                        Toggle("Show Overlay (O)", isOn: $tool.showOverlay)
+                        Toggle("Show Overlay" + (store.binding(for: .maskOverlay).map { " (\($0.display))" } ?? ""), isOn: $tool.showOverlay)
                             .toggleStyle(.checkbox)
+                            .help(store.help("Show the selected mask's coverage in red", .maskOverlay))
                         Spacer()
                         Button("Done") { session.finishMasking() }
-                            .help("Leave the mask tool (Esc)")
+                            .help(store.help("Leave the mask tool", .maskCancel))
                     }
                     .controlSize(.small)
                 }
@@ -59,6 +61,7 @@ struct MaskPanel: View {
                 .buttonStyle(.plain)
                 .background(RoundedRectangle(cornerRadius: 6).fill(active ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.12)))
                 .help("Create New Mask: \(kind.title)")
+                .accessibilityLabel("New \(kind.title) Mask")
             }
         }
     }
@@ -67,14 +70,18 @@ struct MaskPanel: View {
         switch tool.pendingKind {
         case .linear?: return "Drag on the photo from where the effect is full to where it ends."
         case .radial?: return "Drag on the photo from the center outwards."
-        case .brush?: return "Paint on the photo. ⌥ erases, [ and ] change the size."
+        case .brush?: return "Paint on the photo. ⌥ erases, \(brushKeys) change the size."
         case nil:
             if session.settings.masks.isEmpty { return "Create a mask, then adjust it with the sliders." }
             if session.activeTool == .mask, session.selectedMask?.brush != nil {
-                return "Paint to add, ⌥ or Erase to remove. [ ] size."
+                return "Paint to add, ⌥ or Erase to remove. \(brushKeys) size."
             }
             return nil
         }
+    }
+
+    private var brushKeys: String {
+        [store.display(.brushSmaller), store.display(.brushLarger)].filter { !$0.isEmpty }.joined(separator: " / ")
     }
 
     // MARK: List
@@ -98,7 +105,7 @@ struct MaskPanel: View {
                     .foregroundStyle(mask.isEnabled ? .primary : .secondary)
             }
             .buttonStyle(.borderless)
-            .help(mask.isEnabled ? "Hide mask effect" : "Show mask effect")
+            .iconHelp(mask.isEnabled ? "Hide mask effect" : "Show mask effect")
 
             Image(systemName: mask.shape.kind.systemImage)
                 .foregroundStyle(.secondary)
@@ -117,6 +124,7 @@ struct MaskPanel: View {
             Spacer(minLength: 4)
             if mask.inverted {
                 Image(systemName: "circle.lefthalf.filled").foregroundStyle(.secondary).help("Inverted")
+                    .accessibilityLabel("Inverted")
             }
             Menu {
                 menuItems(mask)
@@ -126,6 +134,7 @@ struct MaskPanel: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .iconHelp("Mask actions: rename, duplicate, invert, hide, delete")
         }
         .font(.callout)
         .padding(.vertical, 3)
@@ -167,6 +176,7 @@ struct MaskPanel: View {
             get: { session.mask(id: mask.id)?.inverted ?? false },
             set: { v in session.updateMask(mask.id) { $0.inverted = v } }))
             .toggleStyle(.checkbox)
+            .help("Apply the adjustments outside the mask instead")
         if mask.radial != nil {
             DevelopSlider(title: "Feather", value: Binding(
                 get: { session.mask(id: mask.id)?.radial?.feather ?? 50 },
@@ -175,8 +185,10 @@ struct MaskPanel: View {
         }
         if mask.brush != nil {
             Toggle("Erase (⌥)", isOn: $tool.eraseMode).toggleStyle(.checkbox)
+                .help("Brush strokes erase the mask (or hold ⌥ while painting)")
             DevelopSlider(title: "Size", value: $tool.brushSize, range: MaskToolState.sizeRange, defaultValue: 16,
                           scale: .logarithmic, format: .integer)
+                .help(store.help("Brush size on screen: the same at every zoom, so zooming in paints finer strokes", [.brushSmaller, .brushLarger]))
             DevelopSlider(title: "Feather", value: $tool.brushFeather, range: 0...100, defaultValue: 50, format: .integer)
             DevelopSlider(title: "Flow", value: $tool.brushFlow, range: 0...100, defaultValue: 100, format: .integer)
             Button("Clear Strokes") {
@@ -186,6 +198,7 @@ struct MaskPanel: View {
             }
             .controlSize(.small)
             .disabled(mask.brush?.strokes.isEmpty ?? true)
+            .help("Remove every brush stroke of this mask")
         }
     }
 
@@ -208,6 +221,7 @@ struct MaskPanel: View {
             .buttonStyle(.borderless)
             .controlSize(.small)
             .disabled(mask.adjustments.isDefault)
+            .help("Reset this mask's adjustments")
         }
         ForEach(Self.sliders, id: \.0) { title, keyPath in
             let isExposure = keyPath == \LocalAdjustments.exposure

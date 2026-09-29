@@ -28,7 +28,7 @@ struct PreviewActivityView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
-                .help("Stop building previews")
+                .iconHelp("Stop building previews")
             }
             .help(jobs.queued.isEmpty ? job.title : "\(job.title) (\(jobs.queued.count) more queued)")
             .fixedSize()

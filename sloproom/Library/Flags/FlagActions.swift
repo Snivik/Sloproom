@@ -38,7 +38,7 @@ struct AutoAdvanceToggle: View {
     @AppStorage(FlagActions.autoAdvanceKey) private var autoAdvance = false
 
     var body: some View {
-        Toggle("Auto Advance After Flagging", isOn: $autoAdvance)
+        ShortcutMenuToggle(action: .autoAdvance, isOn: $autoAdvance)
     }
 }
 
@@ -58,10 +58,22 @@ struct FlagBadge: View {
             if flag != .none || isHovering {
                 Button { onTogglePick() } label: { icon }
                     .buttonStyle(.plain)
-                    .help(flag == .pick ? "Picked — click to unflag" : flag == .reject ? "Rejected" : "Click to pick (P)")
+                    .help(flagHelp)
+                    .accessibilityLabel(flag == .pick ? "Picked" : flag == .reject ? "Rejected" : "Not flagged")
             }
         } else if flag != .none {
             icon.allowsHitTesting(false)
+                .accessibilityLabel(flag == .pick ? "Picked" : "Rejected")
+        }
+    }
+
+    /// Grid badge tooltip with the current shortcuts.
+    private var flagHelp: String {
+        let store = ShortcutStore.shared
+        switch flag {
+        case .pick: return store.help("Picked — click to unflag", .unflag)
+        case .reject: return store.help("Rejected — click to pick", .pick)
+        case .none: return store.help("Click to pick", .pick)
         }
     }
 

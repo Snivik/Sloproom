@@ -82,6 +82,7 @@ private struct ImportPhotosContent: View {
                 Spacer()
                 Button("Stop Import") { session.cancelImport() }
                     .keyboardShortcut(.cancelAction)
+                    .help("Stop after the current file (photos already copied stay imported)")
             } else {
                 if let error = session.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -93,9 +94,11 @@ private struct ImportPhotosContent: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .help("Close without importing (Esc)")
                 Button(importTitle) { startImport() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!session.canImport)
+                    .help("Import the checked photos (Return)")
             }
         }
         .padding(.horizontal, 16)
@@ -167,6 +170,7 @@ private struct ImportSourceColumn: View {
                 Label("Choose Folder…", systemImage: "folder.badge.plus")
             }
             .buttonStyle(.borderless)
+            .help("Import from a folder instead of a card")
             .padding(.horizontal, 8)
             .padding(.top, 6)
 
@@ -174,9 +178,13 @@ private struct ImportSourceColumn: View {
 
             ImportColumnHeader("Mode")
             Picker("Mode", selection: $session.mode) {
-                ForEach(ImportMode.allCases) { Text($0.title).tag($0) }
+                ForEach(ImportMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                        .help(mode == .copy ? "Copy the files to the destination, then add the copies" : "Add the files where they are; nothing is copied")
+                }
             }
             .pickerStyle(.radioGroup)
+            .help("Copy to a destination or add the files in place")
             .labelsHidden()
             .padding(.horizontal, 8)
             Text(session.mode == .copy
@@ -216,6 +224,7 @@ private struct SourceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help("Import from \(title) (\(subtitle))")
     }
 }
 
@@ -272,7 +281,9 @@ private struct ImportGridColumn: View {
             }
             Spacer()
             Button("Check All") { session.checkAll() }
+                .help("Import every photo (except locked duplicates)")
             Button("Uncheck All") { session.uncheckAll() }
+                .help("Import none; then check the ones you want")
         }
         .controlSize(.small)
         .disabled(session.candidates.isEmpty || session.isImporting)
@@ -324,6 +335,8 @@ private struct ImportGridColumn: View {
             }
             .buttonStyle(.plain)
             .disabled(selectable.isEmpty)
+            .help(checked == selectable.count ? "Uncheck all photos of \(s.title)" : "Check all photos of \(s.title)")
+            .accessibilityLabel("Check \(s.title)")
             Text(s.title).font(.subheadline.weight(.semibold))
             Text("\(s.items.count)").font(.caption).foregroundStyle(.secondary)
             Spacer()
@@ -404,6 +417,7 @@ private struct ImportOptionsColumn: View {
                 ImportColumnHeader("Options")
                 Toggle("Don't import suspected duplicates", isOn: $session.skipDuplicates)
                     .padding(.horizontal, 8)
+                    .help("Photos already in the catalog (same file name, date and size) stay unchecked and locked")
                 Toggle("Treat JPEG next to RAW as sidecar", isOn: $session.pairSidecars)
                     .padding(.horizontal, 8)
                     .help("RAW+JPEG pairs are copied together, but only the RAW is added to the catalog.")
@@ -431,6 +445,7 @@ private struct ImportOptionsColumn: View {
                 Spacer(minLength: 0)
                 Button(session.destination == nil ? "Choose…" : "Change…") { session.chooseDestination() }
                     .controlSize(.small)
+                    .help("Choose the folder the photos are copied into")
             }
             .padding(.horizontal, 8)
             if let problem = session.destinationProblem {
@@ -443,6 +458,8 @@ private struct ImportOptionsColumn: View {
             Picker("Organize", selection: $session.pattern) {
                 ForEach(DestinationPattern.allCases) { Text($0.title).tag($0) }
             }
+            .help("Subfolders created in the destination, by capture date")
+            .accessibilityLabel("Organize")
             .padding(.horizontal, 8)
             let planned = session.plannedFolders
             if !planned.isEmpty {
@@ -484,8 +501,10 @@ private struct ImportOptionsColumn: View {
                 }
             }
             .labelsHidden()
+            .help("Catalog folder the imported photos are added to")
             .padding(.horizontal, 8)
             TextField("New folder (optional)", text: $session.newFolderName)
+                .help("Create a new catalog folder (inside the folder above, if any) for the imported photos")
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal, 8)
             let name = session.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)

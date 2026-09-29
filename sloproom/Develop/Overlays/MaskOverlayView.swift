@@ -6,8 +6,10 @@
 //  image). Draws pins, the selected mask's lines / handles, the brush cursor and the red
 //  coverage overlay; forwards drags to MaskInteraction (hit testing + editing).
 //
-//  Keys (the overlay takes focus): O overlay, [ / ] brush size, Esc cancel creation / leave
-//  the tool, ⌫ delete the selected mask. ⌥ while painting erases.
+//  Keys (registry actions via the shortcut dispatcher, active while the mask tool is; defaults):
+//  O overlay, [ / ] brush size, Esc cancel creation / leave the tool, ⌫ delete the selected
+//  mask. ⌥ while painting erases. The brush size is a SCREEN size (MaskToolState), so the
+//  cursor keeps its size at any zoom and strokes painted zoomed in are finer.
 //
 
 import AppKit
@@ -56,21 +58,7 @@ struct MaskOverlayView: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(.escape) {
-            if tool.pendingKind != nil { tool.pendingKind = nil } else { session.finishMasking() }
-            return .handled
-        }
-        .onKeyPress(characters: CharacterSet(charactersIn: "oO[]")) { press in
-            switch press.characters {
-            case "[": tool.stepBrushSize(up: false)
-            case "]": tool.stepBrushSize(up: true)
-            default: tool.showOverlay.toggle()
-            }
-            return .handled
-        }
-        // Backspace arrives as U+007F, which `onKeyPress(.delete)` (U+0008) doesn't match on macOS.
-        .onKeyPress(characters: CharacterSet(charactersIn: "\u{7f}\u{8}")) { _ in deleteSelected() }
-        .onKeyPress(.deleteForward) { deleteSelected() }
+        .shortcutHandlers(id: ObjectIdentifier(session)) { [session, tool] in Self.keyHandlers(session: session, tool: tool) }
         .onAppear { focused = true }
         .onDisappear { tool.pendingKind = nil }
         .onChange(of: coverageRequest, initial: true) { _, request in
@@ -86,10 +74,19 @@ struct MaskOverlayView: View {
                      targetSize: session.viewPixelSize)
     }
 
-    private func deleteSelected() -> KeyPress.Result {
-        guard let id = session.selectedMaskID else { return .ignored }
-        session.deleteMask(id)
-        return .handled
+    /// Mask tool keys (registry actions, scope Mask Tool; defaults O, [ / ], ⌫ (also ⌦), Esc).
+    private static func keyHandlers(session: DevelopSession, tool: MaskToolState) -> [ShortcutHandler] {
+        [
+            ShortcutHandler(.maskCancel) { [weak session] _ in
+                if tool.pendingKind != nil { tool.pendingKind = nil } else { session?.finishMasking() }
+            },
+            ShortcutHandler(.maskOverlay) { _ in tool.showOverlay.toggle() },
+            ShortcutHandler(.brushSmaller) { _ in tool.stepBrushSize(up: false) },
+            ShortcutHandler(.brushLarger) { _ in tool.stepBrushSize(up: true) },
+            ShortcutHandler(.deleteMask, when: { [weak session] _ in session?.selectedMaskID != nil }) { [weak session] _ in
+                if let session, let id = session.selectedMaskID { session.deleteMask(id) }
+            },
+        ]
     }
 
     // MARK: - Drawing
@@ -132,7 +129,7 @@ struct MaskOverlayView: View {
     }
 
     private func drawBrushCursor(at c: CGPoint, space: MaskSpace, in ctx: GraphicsContext) {
-        let outer = space.geometry.viewLength(fromSourceWidthFraction: tool.brushRadius)
+        let outer = tool.brushScreenRadius   // screen size: the same at any zoom
         let inner = outer * (1 - tool.brushFeather / 100)
         outline(Path(ellipseIn: CGRect(x: c.x - outer, y: c.y - outer, width: 2 * outer, height: 2 * outer)), in: ctx)
         if inner > 1 {
