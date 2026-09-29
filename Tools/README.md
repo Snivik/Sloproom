@@ -80,6 +80,14 @@ Snapshots must also be written inside the container. View them with the Read too
   ranges, scroll offsets), `sfilter picked|…`, `sclick <i> [cmd|shift]`, `sflag pick|none|reject`
   (P/U/X path incl. auto advance), `sfind <file>`, `sdrag x1 y1 x2 y2` (starts a drag; synthetic
   drags never drop), `scount <folder>`.
+  Zoom / panels / full screen (`Develop/Zoom/ZoomDevScript.swift`): `zoom fit|fill|<percent> [nx ny]`,
+  `zoomtoggle x y`, `zmouse x y|off` (fake pointer for `key z` / ⌘=), `pan dx dy`, `magnify f [x y]`,
+  `zscroll dx dy [cmd]`, `zdrag x1 y1 x2 y2 [space]` (real mouse drag, canvas points), `zspace down|up`,
+  `zoomwait` (prints refine timing), `zoombench [n]`, `zoomdump`, `zactivate` (synthesized clicks only
+  reach an ACTIVE app; the polite `activate` is refused while the owner uses another app),
+  `zmaskdrag x1 y1 x2 y2`, `zmaskexp ev`, `panels tab|shifttab|show`,
+  `fullscreen on|off|next|prev|wait|dump|snapshot <png>`, `fskey left|right|z|f|escape`, `fullz <percent> [nx ny]`,
+  `winfull` (native ⌃⌘F full screen).
   Export sheet (`Export/UI/ExportDevScript.swift`): `export sheet | dest <folder> | quality <n> | run |
   wait | cancel | snapshot <png> | close | menustate | dump`, e.g.
   `activate; selectall; export sheet; export dest $C/out; export quality 70; export run; export wait; export snapshot $C/sheet.png; export close; quit`.
@@ -118,6 +126,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `develop_check` | – | `[dng] [out-dir] [only-name-substring]` |
 | `masks_check` | `sloproom/Develop/DevelopSession.swift sloproom/Develop/Masking/UI/{MaskInteraction,MaskToolState,DevelopSession+Masks}.swift sloproom/Develop/Crop/{DevelopSession+Crop,CropMath,Catalog+CropPresets}.swift` | `[dng] [out-dir]` |
 | `crop_check` | `sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift` | `[photo-dir] [out-dir]` |
+| `zoom_check` | `sloproom/Develop/Zoom/RegionRenderer.swift` | `[dng]` (viewport math, region render == full render, 1:1 timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 
 e.g. `Tools/harness.sh /private/tmp/claude-501/<you>/crop_check Tools/crop_check.swift sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift`
