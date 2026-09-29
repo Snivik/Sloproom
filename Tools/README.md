@@ -76,6 +76,10 @@ Snapshots must also be written inside the container. View them with the Read too
   `activate`, `menu <Top>/<Item>[/<Sub>]` (performs a real menu item), `folder new <n>[ in <parent>] |
   rename <n> to <m> | add <n> | move <n> | remove | delete <n>`, `selectall`, `focus <i>`, `devdump`
   (develop session state), `snapwin <png>` (newest window, e.g. Settings), `keqv <letter>`.
+  Selection / filmstrip (`Library/Flags/StripDevScript.swift`): `sdump` (focused index, selection
+  ranges, scroll offsets), `sfilter picked|…`, `sclick <i> [cmd|shift]`, `sflag pick|none|reject`
+  (P/U/X path incl. auto advance), `sfind <file>`, `sdrag x1 y1 x2 y2` (starts a drag; synthetic
+  drags never drop), `scount <folder>`.
   Export sheet (`Export/UI/ExportDevScript.swift`): `export sheet | dest <folder> | quality <n> | run |
   wait | cancel | snapshot <png> | close | menustate | dump`, e.g.
   `activate; selectall; export sheet; export dest $C/out; export quality 70; export run; export wait; export snapshot $C/sheet.png; export close; quit`.

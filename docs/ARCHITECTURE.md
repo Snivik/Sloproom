@@ -175,10 +175,16 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
   changing `focusedPhotoID` in develop switches the session (pending edits are saved first).
 - `presentedSheet: SheetKind? (.importPhotos/.importLightroom/.previewSettings)` → `MainWindowView` presents
   `ImportPhotosSheet`, `LightroomImportSheet`, `PreviewSettingsView`.
-- Actions: `setFlag(_:)`, `setRating(_:)` act on `actionTargetIDs` (develop: current photo; library:
-  selection or focused); `click(photoID:command:shift:)`, `selectAll()`, `moveFocus(by:extend:)`,
+- Actions: `setFlag(_:)`, `setRating(_:)` act on `actionTargetIDs` (library: selection or focused;
+  develop: the filmstrip selection when the current photo is part of a multi-selection, else the
+  current photo; `orderedSelection` = selection in list order); `click(photoID:command:shift:)`
+  (grid AND filmstrip; ⌘-click deselecting the focused photo moves focus to the nearest selected
+  one), `selectAll()`, `moveFocus(by:extend:)`,
   `createFolder(name:parentID:)`, `openInDevelop(_:)`, `report(_ error:)` (alert).
 - Reloads are synchronous on main (fine for tens of thousands of rows; move off-main if needed).
+  Catalog-change reloads are "in place": a focused photo that drops out of the list (unpicked under
+  the Picked filter, removed…) hands focus (and the selection, if it emptied) to the next remaining
+  photo of the old list, or the previous one if it was last. Source / filter / sort changes don't.
 
 Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands`): File > New Folder (⇧⌘N), Import Photos… (⇧⌘I),
 Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export… (⇧⌘E); Edit > Undo/Redo route to the develop session
@@ -218,6 +224,12 @@ The toolbar flag-filter menu is shown only in Develop (it filters the filmstrip)
 - Catalog extras (`Catalog+FolderManagement.swift`): `flagCounts()`, `folderTotalPhotoCounts()`
   (subtree totals, one query), `movePhotos(_:fromFolders:to:)`, `removePhotos(_:fromFolders:)`,
   `uniqueFolderName(_:parentID:)`.
+- Flag visuals (`FlagActions.swift`): monochrome white `FlagBadge` on a dark backing (pick = flag,
+  reject = flag + ×, hover outline = click to pick in the grid only); `.rejectedVeil(_:)` washes a
+  rejected thumbnail out to grey (saturation + `contrast(0.45)` = 55 % mid-grey veil, image pixels
+  only). Same in grid (`PhotoGridCell`) and filmstrip (`FilmstripView`, file names under thumbnails,
+  focused = bright frame, other selected = light frame).
+- Photo drags (grid + filmstrip): `PhotoDrag.provider/preview` (`Library/Flags/PhotoDrag.swift`).
 - In-app drag & drop: plain-text `SloproomDragPayload` (`sloproom-drag:photos:1,2` / `…folder:7`)
   in an `NSItemProvider` via `SloproomDrag.provider(_:)`; drop targets decode it with `SloproomDrag.load`.
 

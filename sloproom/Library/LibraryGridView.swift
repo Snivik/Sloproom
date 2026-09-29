@@ -64,7 +64,7 @@ struct LibraryGridView: View {
                                 model.click(photoID: photo.id, command: flags.contains(.command), shift: flags.contains(.shift))
                                 isGridFocused = true
                             })
-                            .onDrag { SloproomDrag.provider(.photos(dragIDs(for: photo))) } preview: { dragPreview(photo) }
+                            .onDrag { PhotoDrag.provider(for: photo, model: model, selectUnselected: true) } preview: { PhotoDrag.preview(photo, model: model) }
                             .contextMenu { cellMenu(photo) }
                     }
                 }
@@ -119,36 +119,6 @@ struct LibraryGridView: View {
         } else {
             pendingCatalogRemoval = ids
         }
-    }
-
-    /// Dragging a selected photo drags the whole selection (in grid order); dragging an
-    /// unselected photo selects it first.
-    private func dragIDs(for photo: Photo) -> [Int64] {
-        if model.selection.contains(photo.id) { return model.actionTargetIDs }
-        model.click(photoID: photo.id, command: false, shift: false)
-        return [photo.id]
-    }
-
-    /// Small thumbnail with the number of dragged photos.
-    private func dragPreview(_ photo: Photo) -> some View {
-        let count = model.selection.contains(photo.id) ? model.selection.count : 1
-        return ZStack(alignment: .topTrailing) {
-            if let image = PreviewService.shared.cachedImage(for: photo, level: .thumbnail) {
-                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
-            } else {
-                RoundedRectangle(cornerRadius: 4).fill(.quaternary)
-            }
-            if count > 1 {
-                Text(count.formatted())
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.red, in: Capsule())
-                    .offset(x: 6, y: -6)
-            }
-        }
-        .frame(width: 96, height: 96)
     }
 
     /// Context-menu targets: the selection if the clicked photo is part of it, else that photo.

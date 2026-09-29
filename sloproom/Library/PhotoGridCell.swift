@@ -17,6 +17,7 @@ struct PhotoGridCell: View {
     var body: some View {
         VStack(spacing: 4) {
             ThumbnailView(photo: photo, level: .thumbnail)
+                .rejectedVeil(photo.flag == .reject)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(alignment: .bottomTrailing) {
                     if photo.hasEdits {
@@ -49,9 +50,7 @@ struct PhotoGridCell: View {
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(isFocused ? Color.accentColor : .clear, lineWidth: 2)
         )
-        .opacity(photo.flag == .reject ? 0.4 : 1)
         .overlay(alignment: .topLeading) {
-            // After the dimming, so a rejected photo's badge stays readable.
             FlagBadge(flag: photo.flag, isHovering: isHovering, onTogglePick: onTogglePick).padding(11)
         }
         .contentShape(Rectangle())
