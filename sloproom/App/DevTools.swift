@@ -161,6 +161,7 @@ enum DevScript {
                 case "quit": NSApp.terminate(nil)
                 case let c where c.hasPrefix("import"): ImportDevCommands.run(c, arg: arg, model: model)
                 case "export": await ExportDevScript.run(arg, model: model)   // see Export/UI/ExportDevScript.swift
+                case "catalog": await CatalogTransferDevScript.run(arg, model: model)   // see CatalogTransfer/CatalogTransferDevScript.swift
                 case let c where IntegrationDevScript.commands.contains(c): IntegrationDevScript.run(c, arg, model: model)
                 case let c where StripDevScript.commands.contains(c): StripDevScript.run(c, arg, model: model)   // Library/Flags/StripDevScript.swift
                 case let c where MaskDevScript.commands.contains(c): MaskDevScript.run(c, arg, session: model.developSession)

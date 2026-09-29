@@ -116,6 +116,8 @@ final class DevelopSession {
     }
     private var isClosed = false
     private static let saveQueue = DispatchQueue(label: "Sloproom.DevelopSession.save", qos: .userInitiated)
+    /// Blocks until saves queued by `saveNow()` / `close()` are written (catalog export / replace).
+    static func flushPendingSaves() { saveQueue.sync {} }
 
     init(photo: Photo, catalog: Catalog) {
         self.photo = photo

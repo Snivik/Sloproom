@@ -109,6 +109,7 @@ nonisolated final class SQLiteDatabase: @unchecked Sendable {
     /// Executes one or more SQL statements with no parameters and no results (DDL, pragmas).
     func execute(_ sql: String) throws {
         try locked {
+            guard handle != nil else { throw Self.closedError(sql) }
             var err: UnsafeMutablePointer<CChar>?
             let rc = sqlite3_exec(handle, sql, nil, nil, &err)
             if rc != SQLITE_OK {
@@ -185,7 +186,21 @@ nonisolated final class SQLiteDatabase: @unchecked Sendable {
 
     /// Row id of the most recent successful INSERT on this connection.
     /// Only meaningful when read inside the same `transaction {}` / locked sequence as the insert.
-    var lastInsertRowID: Int64 { locked { sqlite3_last_insert_rowid(handle) } }
+    var lastInsertRowID: Int64 { locked { handle.map { sqlite3_last_insert_rowid($0) } ?? 0 } }
+
+    /// Closes the connection (waits for the running call; the last connection checkpoints and
+    /// removes the WAL). Every later call throws "database is closed". Used when the catalog file
+    /// is swapped (Import Catalog) and for snapshots.
+    func close() {
+        locked {
+            for (_, stmt) in statementCache { sqlite3_finalize(stmt) }
+            statementCache.removeAll()
+            if let handle { sqlite3_close_v2(handle) }
+            handle = nil
+        }
+    }
+
+    var isClosed: Bool { locked { handle == nil } }
 
     /// Runs `body` while holding the database lock (use to make read-then-write sequences atomic
     /// without opening a transaction).
@@ -198,6 +213,7 @@ nonisolated final class SQLiteDatabase: @unchecked Sendable {
     // MARK: - Private
 
     private func prepared(_ sql: String) throws -> OpaquePointer {
+        guard handle != nil else { throw Self.closedError(sql) }
         if let s = statementCache[sql] { return s }
         var stmt: OpaquePointer?
         let rc = sqlite3_prepare_v2(handle, sql, -1, &stmt, nil)
@@ -222,6 +238,10 @@ nonisolated final class SQLiteDatabase: @unchecked Sendable {
             }
             if rc != SQLITE_OK { throw error(rc, sql) }
         }
+    }
+
+    private static func closedError(_ sql: String?) -> SQLiteError {
+        SQLiteError(code: SQLITE_MISUSE, message: "database is closed", sql: sql)
     }
 
     private func error(_ rc: Int32, _ sql: String?) -> SQLiteError {

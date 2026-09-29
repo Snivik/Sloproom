@@ -44,6 +44,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Develop/DevelopSession.swift`, `DevelopView/Canvas/Inspector`, `DevelopSlider`, `Panels/*`, `Overlays/*` | develop session + UI |
 | `Develop/Zoom/*` | canvas zoom / pan (`ZoomController`, `RegionRenderer` engine), view bar, panel visibility (Tab / ⇧Tab), full-screen preview (F), DevScript |
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
+| `CatalogTransfer/*` | Export Catalog / Import Catalog (engine `CatalogTransfer.swift`; controller, sheet + `CatalogTransferCommands`, DevScript) |
 
 Conventions: new catalog API as `nonisolated extension Catalog` in the feature's own
 `Catalog+Feature.swift`; feature tables via `applyMigration(named:sql:)`; engine files (anything
@@ -54,11 +55,16 @@ a harness compiles) import no SwiftUI/AppKit and mark types `nonisolated`.
 `nonisolated final class Catalog: @unchecked Sendable`. All methods are synchronous, thread-safe
 (one recursive lock in `SQLiteDatabase`) and `throws`. Call heavy ones off the main thread.
 
+- **Owner decision (frozen): edits live ONLY in the catalog — no XMP / sidecar files are ever
+  written. Portability between Macs is File > Export Catalog… / Import Catalog… (see below).**
 - Location: `Catalog.defaultDirectory` = `<Application Support>/Sloproom` (inside the container when
   sandboxed; `SLOPROOM_CATALOG_DIR` env overrides). `catalogDirectory` holds `Catalog.sqlite`;
   `cacheDirectory("Previews")` returns/creates a subdirectory for caches.
 - Open: `Catalog.openDefault()`, `Catalog.open(at: URL)` (harnesses: temp dir).
-- Schema: `PRAGMA user_version` migrations in `Catalog.migrations` (append-only, foundation-owned).
+- Schema: `PRAGMA user_version` migrations in `Catalog.migrations` (append-only, foundation-owned);
+  `Catalog.schemaVersion` = the version this app writes (Import Catalog refuses newer files).
+- Lifecycle: `catalog.close()` / `db.close()` close the connection (later calls throw "database is
+  closed"); only Import Catalog uses it, followed by `AppModel.replaceCatalog(with:)`.
   Feature tables: `try catalog.applyMigration(named: "previews.v1", sql: "CREATE TABLE …")` —
   idempotent, tracked in `applied_migrations`.
 - Tables: `photos`, `folders`, `folder_photos`, `roots`, `crop_presets`, `applied_migrations`
@@ -148,6 +154,45 @@ Your own extension methods should call `postChange(_:)` too. `AppModel` coalesce
 `PreviewService` also observes `.roots`: it clears `SecurityScopeManager` failures and bumps the
 `PreviewJobs` revision of photos that were offline, so their thumbnails retry without a restart.
 
+## Catalog transfer (`CatalogTransfer/`, harness `Tools/catalog_transfer_check.swift`)
+
+- **Export** (`CatalogTransfer.exportCatalog(_:to:appVersion:appBuild:sourceMac:)`, off-main):
+  `VACUUM INTO <catalogDir>/Transfer/export-<uuid>.sqlite` (consistent while the app writes), then
+  in the SNAPSHOT only: table `catalog_info(key, value)` (`format`, `format_version` =
+  `CatalogTransfer.formatVersion` (1), `app_version`, `app_build`, `schema_version`, `exported_at` (ISO
+  8601) + `exported_at_unix`, `source_mac` (`Host.current().localizedName`), `export_id`, `photo_count`,
+  `edited_photo_count`, `folder_count`, `root_count`), `journal_mode=DELETE` (one self-contained file),
+  `integrity_check` + `foreign_key_check`, then placed at the destination: safe-save via an item
+  replacement directory, else hidden sibling + `rename`, else a direct write (a sandboxed save-panel
+  grant may cover only the chosen file). Default name `Sloproom Catalog YYYY-MM-DD.sloproomcatalog`.
+  Previews are NOT included. Pending Develop edits are flushed first (`DevelopSession.flushPendingSaves()`).
+- **Import** (`stageImport(from:stagingDirectory:)`): copies the picked `.sloproomcatalog` / `Catalog.sqlite`
+  (+ its `-wal` if readable; warning otherwise) into `<catalogDir>/Transfer/`, never opens it in place.
+  `validate`: required tables (`photos folders folder_photos roots applied_migrations`), photos columns,
+  `user_version` 1…`Catalog.schemaVersion` (newer → `.newerSchema`, clear message), `format_version` ≤ 1,
+  `integrity_check`, FK check. Summary sheet: photos / edited / flags / folders / exported at + Mac /
+  app version / schema, drives with `RootAccess.status`, Cancel / Replace Current Catalog.
+- **Replace** (in-process, no relaunch — `CatalogTransferController.replace`): `model.prepareForCatalogReplacement()`
+  (Library, no selection, empty grid), cancel preview jobs, flush Develop saves, wait 0.8 s for in-flight
+  preview loads, then off-main `CatalogTransfer.replaceCatalog`: backup `VACUUM INTO
+  <catalogDir>/Backups/Catalog-YYYYMMDD-HHMMSS.sqlite` (newest 10 kept), `close()`, remove `-wal/-shm`,
+  atomic rename of the staged file to `Catalog.sqlite`, `Catalog.open` (older schemas migrate), count
+  check; any failure after closing restores the backup and reopens it (`.replaceFailed(…, reopened:)`).
+  On main: `SecurityScopeManager.shared.reset()` (scopes are cached per root id), Previews directory
+  moved aside + deleted in the background and `PreviewService.discardAll()` (previews are keyed by photo
+  id), `model.replaceCatalog(with:)` (reconfigures `PreviewService`, observer, source All, reload). The
+  sidebar is keyed by `ObjectIdentifier(model.catalog)` so its counts object restarts. The result sheet
+  names the backup and, if any root isn't `.granted`, embeds `RootsAccessView` with instructions.
+- **Relink** (`RootAccess.relink(_:to:bookmark:catalog:)`, engine in `RootAccess.swift`):
+  `catalog.relinkCheck(root:newPath:)` samples ≤ 200 of the root's photos (those under it and not under a
+  more specific root) at the same relative paths (UI warns below 80%, "Relink Anyway");
+  `catalog.relinkRoot(id:to:bookmark:displayName:)` rewrites `roots.path` + bookmark and every photo
+  `path` / `sidecar_path` under the old prefix (`Catalog.normalizedPath`, `Catalog.relinkedPath`) in one
+  transaction (refuses a path that is another root or would collide with existing photos), posts
+  `.roots`. `RootsAccessView` ("Relink…" next to Grant Access, also in Settings > Drives) runs it
+  off-main, then `model.reloadPhotos()` + `PreviewJobs.notifyChanged(ids)` so thumbnails that were
+  offline retry with the new paths.
+
 ## Sandbox / security scope
 
 - The catalog lives in the container. Photo files are only readable via user grants.
@@ -187,8 +232,8 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
   the Picked filter, removed…) hands focus (and the selection, if it emptied) to the next remaining
   photo of the old list, or the previous one if it was last. Source / filter / sort changes don't.
 
-Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands`): File > New Folder (⇧⌘N), Import Photos… (⇧⌘I),
-Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export… (⇧⌘E); Edit > Undo/Redo route to the develop session
+Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder (⇧⌘N), Import Photos… (⇧⌘I),
+Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export… (⇧⌘E), Export Catalog…, Import Catalog… (no shortcuts); Edit > Undo/Redo route to the develop session
 in Develop mode, otherwise to the responder chain; Edit > Select All Photos (⌥⌘A); Photo > Pick (P),
 Unflag (U), Reject (X), Auto Advance After Flagging, Set Rating (0–5), Copy / Paste Settings (⇧⌘C /
 ⇧⌘V), Before / After (`\`); View > Library (G), Develop (D); Library > Previews ▸ (build / regenerate
