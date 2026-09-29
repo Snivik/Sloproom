@@ -88,6 +88,11 @@ Snapshots must also be written inside the container. View them with the Read too
   `zmaskdrag x1 y1 x2 y2`, `zmaskexp ev`, `panels tab|shifttab|show`,
   `fullscreen on|off|next|prev|wait|dump|snapshot <png>`, `fskey left|right|z|f|escape`, `fullz <percent> [nx ny]`,
   `winfull` (native ⌃⌘F full screen).
+  Develop latency / preview caches (`Previews/UI/RecentRendersDevScript.swift`): `rr time next|prev|<index>`
+  (ms until first image / sharp image / source loaded / final render), `rr stats`, `rr reset`, `rr dump`,
+  `rr sheet` / `rr closesheet` (preview settings sheet), `rr limit <n>|reset`, `rr clean`.
+  Launch args `-previews.recentRenderCount '<integer>0</integer>'` / `-previews.developPrefetch NO` switch
+  the features off for before/after timings.
   Export sheet (`Export/UI/ExportDevScript.swift`): `export sheet | dest <folder> | quality <n> | run |
   wait | cancel | snapshot <png> | close | menustate | dump`, e.g.
   `activate; selectall; export sheet; export dest $C/out; export quality 70; export run; export wait; export snapshot $C/sheet.png; export close; quit`.
@@ -131,6 +136,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `crop_check` | `sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift` | `[photo-dir] [out-dir]` |
 | `zoom_check` | `sloproom/Develop/Zoom/RegionRenderer.swift` | `[dng]` (viewport math, region render == full render, 1:1 timings) |
 | `catalog_transfer_check` | `sloproom/CatalogTransfer/CatalogTransfer.swift sloproom/LightroomImport/RootAccess.swift` | `[catalog-dir to COPY] [out-dir]` (default: the realistic catalog copy `…/Data/tmp/catalog/pristine`, `/private/tmp/claude-501/catalog-out/run`) |
+| `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 
 e.g. `Tools/harness.sh /private/tmp/claude-501/<you>/crop_check Tools/crop_check.swift sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift`

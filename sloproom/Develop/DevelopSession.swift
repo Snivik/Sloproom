@@ -74,6 +74,14 @@ final class DevelopSession {
     private(set) var isLoading = true
     private(set) var loadError: String?
 
+    // MARK: Recent renders hook (Previews/RecentRenders.swift)
+    /// Where `renderedImage` came from.
+    enum ImageOrigin: String { case none, placeholder, recent, pipeline }
+    private(set) var imageOrigin: ImageOrigin = .none
+    /// A recent render is on screen and it is exactly what the pipeline would render now
+    /// (same settings and canvas size), so no render was needed.
+    var recentRenderIsFinal: Bool { imageOrigin == .recent && renderedKey?.size == viewPixelSize }
+
     /// Decoded source, created off-main on open.
     private(set) var source: RenderSource?
     /// Oriented full-resolution size (from the source once loaded, else from catalog metadata).
@@ -130,6 +138,7 @@ final class DevelopSession {
 
     private func load() {
         let photo = photo, catalog = catalog
+        showRecentRender() // Recent renders hook: a sharp image before the RAW is read.
         if let cached = PreviewService.shared.cachedImage(for: photo, level: .standard)
             ?? PreviewService.shared.cachedImage(for: photo, level: .thumbnail) {
             setPlaceholder(cached)
@@ -147,11 +156,59 @@ final class DevelopSession {
         }
     }
 
+    // MARK: Recent renders hook (Previews/RecentRenders.swift)
+
+    /// Shows the last full-quality render of these settings (memory now, else from disk off-main),
+    /// unless the pipeline got there first. If it was rendered at the current canvas size it is
+    /// exactly what the pipeline would produce, so the first render is skipped.
+    private func showRecentRender() {
+        let recent = RecentRenders.shared
+        guard recent.isEnabled else { return }
+        let id = photo.id, hash = RecentRenderKey.settingsHash(settings)
+        if let hit = recent.memoryRender(photoID: id, settingsHash: hash) {
+            applyRecentRender(hit)
+        } else if recent.contains(photoID: id, settingsHash: hash) {
+            Task { [weak self] in
+                let render = await withCheckedContinuation { done in
+                    recent.loadRender(photoID: id, settingsHash: hash) { done.resume(returning: $0) }
+                }
+                if let render { self?.applyRecentRender(render) }
+            }
+        }
+    }
+
+    private func applyRecentRender(_ render: RecentRender) {
+        guard !isClosed, renderedImage == nil || isPlaceholder, !showBefore, activeTool != .crop,
+              RecentRenderKey.settingsHash(settings) == render.key.settingsHash else { return }
+        renderedImage = render.image
+        renderedWithCrop = true
+        isPlaceholder = false
+        imageOrigin = .recent
+        renderedKey = RenderKey(settings: settings, size: render.key.box, applyCrop: true, quality: .final)
+        let image = render.image
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let histogram = Histogram(image: image)
+            await self?.recentHistogramReady(histogram, for: image)
+        }
+    }
+
+    private func recentHistogramReady(_ histogram: Histogram?, for image: CGImage) {
+        guard let histogram, renderedImage === image else { return }
+        self.histogram = histogram
+    }
+
+    /// Remembers a full-quality, crop-applied render of the current settings.
+    private func storeRecentRender(_ image: CGImage, key: RenderKey, settingsHash: UInt64?) {
+        guard let settingsHash, key.quality == .final, key.applyCrop, key.settings == settings, !showBefore else { return }
+        RecentRenders.shared.store(image, key: RecentRenderKey(photoID: photo.id, settingsHash: settingsHash, box: key.size))
+    }
+
     private func setPlaceholder(_ image: CGImage) {
         guard renderedImage == nil || isPlaceholder else { return }
         renderedImage = image
         renderedWithCrop = true
         isPlaceholder = true
+        imageOrigin = .placeholder
     }
 
     private func sourceLoaded(_ source: RenderSource?) {
@@ -213,17 +270,21 @@ final class DevelopSession {
                                               applyCrop: applyCrop, proxyScale: proxyScale, context: ctx)
             let cg = RenderPipeline.makeCGImage(image, context: ctx)
             let histogram = cg.flatMap { Histogram(image: $0) }
-            await self?.renderFinished(cg, histogram: histogram, key: key)
+            // Recent renders hook: key of a final render (hashing the settings off-main).
+            let recentHash = key.quality == .final && applyCrop ? RecentRenderKey.settingsHash(settings) : nil
+            await self?.renderFinished(cg, histogram: histogram, key: key, recentHash: recentHash)
         }
     }
 
-    private func renderFinished(_ image: CGImage?, histogram: Histogram?, key: RenderKey) {
+    private func renderFinished(_ image: CGImage?, histogram: Histogram?, key: RenderKey, recentHash: UInt64? = nil) {
         renderInFlight = false
         guard !isClosed else { return }
         if let image {
+            storeRecentRender(image, key: key, settingsHash: recentHash)
             renderedImage = image
             renderedWithCrop = key.applyCrop
             isPlaceholder = false
+            imageOrigin = .pipeline
             renderedKey = key
             if let histogram { self.histogram = histogram }
         }

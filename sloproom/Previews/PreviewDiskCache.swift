@@ -29,6 +29,10 @@ nonisolated final class PreviewDiskCache: @unchecked Sendable {
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
+    /// Subdirectory owned by `RecentRenders` (excluded from this cache's size / pruning).
+    static let recentDirectoryName = "Recent"
+    var recentDirectory: URL { directory.appendingPathComponent(Self.recentDirectoryName, isDirectory: true) }
+
     // MARK: - Names
 
     static func levelCode(_ level: PreviewLevel) -> String {
@@ -146,9 +150,10 @@ nonisolated final class PreviewDiskCache: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Deletes every preview (not `Recent/`, which `RecentRenders.removeAll()` cleans).
     func removeAll() {
         if let items = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
-            for item in items { try? fm.removeItem(at: item) }
+            for item in items where item.lastPathComponent != Self.recentDirectoryName { try? fm.removeItem(at: item) }
         }
         lock.lock()
         usage = 0
@@ -205,6 +210,8 @@ nonisolated final class PreviewDiskCache: @unchecked Sendable {
         guard let e = fm.enumerator(at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return [] }
         var out: [Entry] = []
         for case let url as URL in e {
+            // Recent Develop renders have their own count-based LRU (RecentRenders).
+            if e.level == 1, url.lastPathComponent == Self.recentDirectoryName { e.skipDescendants(); continue }
             guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
             out.append(Entry(url: url, size: Int64(v.fileSize ?? 0), date: v.contentModificationDate ?? .distantPast))
         }

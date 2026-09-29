@@ -113,6 +113,7 @@ final class AppModel {
         pendingReloadPhotos = false
         pendingReloadFolders = false
         catalog = newCatalog
+        RecentRenders.shared.purgeAll()   // photo ids differ between catalogs
         PreviewService.shared.configure(catalog: newCatalog)
         observeCatalog()
         selectedSource = .all
@@ -314,6 +315,7 @@ final class AppModel {
         closeDevelopSession()
         guard let photo = photo(id: id) ?? (try? catalog.photo(id: id)) else { return }
         developSession = DevelopSession(photo: photo, catalog: catalog)
+        if let index = photoIndex[id] { RecentRendersPrefetch.shared.developOpened(index: index, in: photos) } // warm neighbours
     }
 
     private func closeDevelopSession() {
