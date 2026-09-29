@@ -187,6 +187,13 @@ nonisolated enum RenderPipeline {
         let ctx = RenderContext(fullSize: source.orientedSize, imageSize: image.extent.size,
                                 draft: draft || source.draft, applyCrop: applyCrop, requestedScale: scale * min(proxyScale, 1),
                                 seed: source.seed, ciContext: ciContext)
+        return applyStages(image, settings: settings, context: ctx)
+    }
+
+    /// Stages 2–7 (tone … effects) on a stage-1 (RawDecodeStage) output with extent (0, 0, W, H).
+    /// `render` uses it; zoomed region rendering (Develop/Zoom) feeds it a cached full-res decode.
+    static func applyStages(_ decoded: CIImage, settings: EditSettings, context ctx: RenderContext) -> CIImage {
+        var image = decoded
         image = ToneStage.apply(image, settings: settings, context: ctx)
         image = PresenceStage.apply(image, settings: settings, context: ctx)
         image = ColorMixerStage.apply(image, settings: settings, context: ctx)

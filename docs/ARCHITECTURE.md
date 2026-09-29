@@ -42,6 +42,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Develop/Masking/*` (+ `Masking/UI/*`) | mask rasterization (engine) + mask tool state/interaction/coverage overlay |
 | `Develop/Crop/*` | crop math, crop actions on `DevelopSession`, preset catalog API + editor, `CropKeyMonitor` |
 | `Develop/DevelopSession.swift`, `DevelopView/Canvas/Inspector`, `DevelopSlider`, `Panels/*`, `Overlays/*` | develop session + UI |
+| `Develop/Zoom/*` | canvas zoom / pan (`ZoomController`, `RegionRenderer` engine), view bar, panel visibility (Tab / ⇧Tab), full-screen preview (F), DevScript |
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
 
 Conventions: new catalog API as `nonisolated extension Catalog` in the feature's own
@@ -202,6 +203,10 @@ Local key monitors see keys BEFORE menu matching and all yield while a text fiel
 | Library grid (focused) | arrows (+⇧ extend), Return → Develop, ⌫ remove from shown folder / from catalog (confirm) | `LibraryGridView` |
 | sidebar (focused) | ⌫ delete folder (confirm) | `SidebarView` |
 | Develop | R toggle crop tool, ⌘[ / ⌘] rotate; ←/→ previous / next photo (canvas focused) | `CropKeyMonitor`, `DevelopCanvasView` |
+| Develop canvas | Z Fit ↔ 1:1 at pointer, ⌘= / ⌘- zoom step, Space (held) hand; pinch / ⌘⌥-scroll zoom, scroll pans | `ZoomEventMonitor` (Develop only; Library keeps ⌘= / ⌘-) |
+| Develop | Tab side panels, ⇧Tab sidebar + inspector + filmstrip | `DevelopPanels` (`developPanelShortcuts`) |
+| main window (Library + Develop) | F full-screen preview | `FullScreenShortcut` (`fullScreenPreviewShortcut`, MainWindowView) |
+| full-screen preview | ←/→ previous / next, Z / ⌘= / ⌘- / Space as on the canvas, F / Esc close | `FullScreenPreview`, `ZoomEventMonitor` |
 | crop tool | X swap aspect (instead of Reject), O cycle grid, Return commit, Esc cancel | `CropKeyMonitor` |
 | mask tool (overlay focused) | O coverage overlay, [ / ] brush size, ⌫ / ⌦ delete selected mask, Esc cancel creation / leave tool | `MaskOverlayView` (Backspace is U+007F: match it by character, `onKeyPress(.delete)` never fires) |
 | WB eyedropper | Esc cancel | `WhiteBalancePickerOverlay` |
@@ -340,7 +345,7 @@ sRGB primaries**, extent `(0,0,W,H)`):
   Radii are fractions of the long side ⇒ proxy, thumbnail and export look alike. Small blurred bases are
   rendered eagerly with `RenderContext.ciContext` (otherwise large tiled renders re-evaluate the whole
   graph per tile).
-- **Pipeline additions**: `RenderPipeline.interactiveContext` (caches intermediates: a slider change
+- **Pipeline additions**: `RenderPipeline.applyStages(_:settings:context:)` (stages 2–7, used by `render` and zoomed region renders), `RenderPipeline.interactiveContext` (caches intermediates: a slider change
   re-renders a 60 MP DNG at 1600 px in ~5–15 ms), `render(…, proxyScale:, context:)`,
   `renderCGImage(…, proxyScale:, context:)`, `makeCGImage(_:colorSpace:context:)` (renders NOW, not
   deferred to draw time), `RenderContext.seed` / `.ciContext`, `RenderSource.seed/baselineOffset/defaultBaselineExposure`.
@@ -401,6 +406,8 @@ case .none: Color.clear
 ```
 
 Overlays are laid out over the whole canvas, so their local coordinates == canvas coordinates.
+`imageRect` is where the WHOLE displayed image is drawn — when zoomed it is larger than the canvas
+and may start at negative coordinates — so every conversion below stays exact at any zoom / pan.
 Convert with `let g = session.canvasGeometry(imageRect: imageRect)`:
 
 - mask space: `g.viewPoint(fromMask: NormPoint)`, `g.maskPoint(fromView: CGPoint)`,
@@ -408,6 +415,37 @@ Convert with `let g = session.canvasGeometry(imageRect: imageRect)`:
 - crop/frame space: `g.viewPoint(fromFrame:)`, `g.framePoint(fromView:)`, `g.viewRect(fromFrame: NormRect)`
 - displayed image: `g.viewPoint(fromDisplayed:)`, `g.displayedPoint(fromView:)`; `g.viewScale` = view pt per source px
 - `CanvasGeometry.aspectFitRect(imageSize:in:)`
+- zoom / pan: `CanvasViewport` (same file, pure math): `canvasSize`, `displayedSize` (source px),
+  `displayScale`, `margin`, `level: ZoomLevel (.fit/.fill/.ratio(r), r = device px per image px)`,
+  `center` (displayed-normalized point at the view center) → `imageRect` (clamped: the image can't
+  leave the view), `visibleDisplayedRect`, `zoomed(to:anchor:)`, `panned(by:)`, `magnified(by:anchor:)`,
+  `stepped(in:)`.
+
+### Zoom, panels, full screen (`Develop/Zoom/`)
+
+- `ZoomController` (@Observable; `.develop` shared across photos, the full-screen preview has its
+  own): viewport + actions (`toggle(at:)`, `step`, `pan`, `magnify`, `setLevel`), locked to Fit while
+  the crop tool is active. The canvas shows the fit render scaled immediately; ~100 ms after the view
+  settles (settings changes: at once) `RegionRenderer` renders only the visible region (+96 px) at
+  `min(1, pixelRatio)` and `tile` is drawn over it. The old tile stays up during edits unless the
+  geometry changed.
+- `RegionRenderer` (engine, harness `Tools/zoom_check.swift`): builds the graph at the zoom scale and
+  crops the output to the region before rendering (CIRAWFilter is ROI-aware: 1:1 2800×1672 px of a
+  60 MP DNG ≈ 20–30 ms). Settings with neighbourhood ops (highlights/shadows/clarity/dehaze, local
+  masks with them) need the whole image for their blurred bases, so the stage-1 decode is materialized
+  once (RGBAh, ≈ 375 MB at 1:1 for 60 MP; one cached, keyed by source/scale/WB/exposure; ≈ 300 ms)
+  and region renders then take ≈ 40–50 ms. Uses `RenderPipeline.applyStages` (stages 2–7 on a decode).
+- Canvas layers: image + tile, `HandToolLayer` (tool none: click = zoom toggle, drag = pan), tool
+  overlay, WB eyedropper, space-bar `HandToolLayer` (over every tool but crop), `ZoomNavigator`
+  (mini map while zoomed), `ZoomHUD`. `DevelopViewBar` (under the canvas): Fit / Fill / 1:1 + level
+  menu with the current %, panel toggles, full-screen button.
+- `DevelopPanels.shared`: `sidebarHidden/inspectorHidden/filmstripHidden` (per app session);
+  `columnVisibility(mode:)` is MainWindowView's NavigationSplitView binding (Library keeps its own).
+  The inspector stays in the hierarchy at zero width while hidden (its panels install key monitors).
+- `FullScreenPreview.shared`: borderless window over the main window's screen (menu bar + Dock hidden
+  unless the main window is in native full screen), black, standard preview first then a render at
+  screen pixels (≈ 65–110 ms for a 60 MP DNG), next photo pre-rendered; live session settings when it
+  shows the Develop photo.
 
 `showsCrop` comes from `session.renderedWithCrop` (the image actually on screen), so conversions
 stay correct while a re-render is in flight. GeometryStage renders exactly GeometryMath (checked by

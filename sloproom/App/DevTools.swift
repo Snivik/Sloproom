@@ -163,6 +163,7 @@ enum DevScript {
                 case "export": await ExportDevScript.run(arg, model: model)   // see Export/UI/ExportDevScript.swift
                 case let c where IntegrationDevScript.commands.contains(c): IntegrationDevScript.run(c, arg, model: model)
                 case let c where MaskDevScript.commands.contains(c): MaskDevScript.run(c, arg, session: model.developSession)
+                case let c where ZoomDevScript.commands.contains(c): await ZoomDevScript.run(c, arg, model: model)   // Develop/Zoom
                 case "key", "type", "click", "dclick", "dump", "menus", "action", "row", "whichmenu": FoldersDevScript.run(parts[0], arg, model: model)
                 default: print("DevScript: unknown command \(command)")
                 }
