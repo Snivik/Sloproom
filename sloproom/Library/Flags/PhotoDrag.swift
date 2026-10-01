@@ -4,7 +4,8 @@
 //
 //  Photo drag source shared by the Library grid and the Develop filmstrip: the payload is
 //  `SloproomDragPayload.photos` (dropped on sidebar folders by `FolderRowDropDelegate`,
-//  ⌥ = move out of the shown folder). Dragging a selected photo drags the whole selection.
+//  ⌘ = move out of the shown folder, ⌥ = virtual copies: `PhotoDropVerb`). Dragging a selected
+//  photo drags the whole selection.
 //
 
 import SwiftUI

@@ -15,9 +15,10 @@ nonisolated struct ImportFingerprint: Sendable, Hashable {
 }
 
 nonisolated extension Catalog {
-    /// Path, file name, size and capture date of every photo (for duplicate detection).
+    /// Path, file name, size and capture date of every photo (for duplicate detection). Masters
+    /// only: virtual copies share their master's file.
     func importFingerprints() throws -> [ImportFingerprint] {
-        try db.query("SELECT path, file_name, file_size, capture_date FROM photos", []) {
+        try db.query("SELECT path, file_name, file_size, capture_date FROM photos WHERE master_id IS NULL", []) {
             ImportFingerprint(path: $0.string(0), fileName: $0.string(1), fileSize: $0.int(2), captureDate: $0.date(3))
         }
     }

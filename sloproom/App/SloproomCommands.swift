@@ -77,6 +77,9 @@ struct SloproomCommands: Commands {
         ShortcutMenuButton(.copySettings) { model.copyDevelopSettings() }
         ShortcutMenuButton(.pasteSettings) { model.pasteDevelopSettings() }
         ShortcutMenuButton(.beforeAfter) { model.developSession?.showBefore.toggle() }
+        Divider()
+        ShortcutMenuButton(.createVirtualCopy) { VirtualCopyActions.createFromMenu(model: model) }   // VirtualCopies/
+        Button("Rename Virtual Copy…") { VirtualCopyActions.requestRename(model.actionTargetIDs, model: model) }
     }
 }
 

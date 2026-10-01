@@ -32,7 +32,7 @@ struct PhotoGridCell: View {
                     }
                 }
             HStack(spacing: 4) {
-                Text(photo.fileName)
+                Text(photo.displayTitle)   // "IMG_1234 · Copy 1" for a virtual copy
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if photo.rating > 0 {
@@ -57,6 +57,7 @@ struct PhotoGridCell: View {
         .overlay(alignment: .topLeading) {
             FlagBadge(flag: photo.flag, isHovering: isHovering, onTogglePick: onTogglePick).padding(11)
         }
+        .overlay(alignment: .topTrailing) { VirtualCopyBadge(photo: photo).padding(11) }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
     }

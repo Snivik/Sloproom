@@ -3,7 +3,8 @@
 //  sloproom
 //
 //  Writes a `LightroomImportPlan` into the Sloproom catalog. Idempotent:
-//  - photos are upserted by path (existing rows keep their data; only `lr_image_id` is filled in
+//  - photos are upserted by path among masters (virtual copies never match; existing rows keep
+//    their data; only `lr_image_id` is filled in
 //    and LR's non-default pick/reject/rating are applied if those options are on),
 //  - folders are matched on `folders.lr_collection_id` (existing ones are reused wherever the user
 //    moved them; only missing ones are created), the container folder on `lightroomContainerID`,
@@ -75,7 +76,7 @@ nonisolated extension Catalog {
                             width, height, orientation, camera_model, lens, iso, shutter, aperture,
                             focal_length, flag, rating, sidecar_path, lr_image_id)
                         VALUES (?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(path) DO NOTHING
+                        ON CONFLICT(path) WHERE master_id IS NULL DO NOTHING
                         """, [image.path, rootID, image.fileName, image.captureDate, importDate,
                               image.width, image.height, image.orientation, image.cameraModel, image.lens,
                               image.iso, image.shutter, image.aperture, image.focalLength, flag, rating,
@@ -83,7 +84,7 @@ nonisolated extension Catalog {
                     if inserted > 0 {
                         photoIDs[image.id] = db.lastInsertRowID
                         result.photosAdded += 1
-                    } else if let id = try db.scalarInt("SELECT id FROM photos WHERE path = ?", [image.path]) {
+                    } else if let id = try db.scalarInt("SELECT id FROM photos WHERE path = ? AND master_id IS NULL", [image.path]) {
                         photoIDs[image.id] = id
                         result.photosExisting += 1
                         // Merge: keep Sloproom's data, only fill in what Lightroom knows and we don't.

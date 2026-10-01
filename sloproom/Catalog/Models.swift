@@ -19,7 +19,7 @@ nonisolated enum Flag: Int, Codable, Sendable, Hashable, CaseIterable {
 nonisolated struct Photo: Identifiable, Hashable, Sendable {
     /// Catalog row id. `0` for a photo that has not been inserted yet.
     var id: Int64 = 0
-    /// Absolute POSIX path of the original file (unique in catalog).
+    /// Absolute POSIX path of the original file (unique among masters; virtual copies share it).
     var path: String
     /// Covering root (security-scoped bookmark), if any. Filled automatically on insert.
     var rootID: Int64? = nil
@@ -53,6 +53,11 @@ nonisolated struct Photo: Identifiable, Hashable, Sendable {
     var sidecarPath: String? = nil
     /// Lightroom Classic `Adobe_images.id_local` when imported from an LrC catalog.
     var lrImageID: Int64? = nil
+    /// Virtual copies: the master photo this row is a virtual copy of (same file, its own edits,
+    /// flag, rating, folders and previews). nil = a master (a real catalogued file).
+    var masterID: Int64? = nil
+    /// Name of a virtual copy ("Copy 1", or what the user renamed it to). nil for masters.
+    var copyName: String? = nil
 
     init(path: String, fileName: String? = nil) {
         self.path = path
@@ -72,6 +77,29 @@ nonisolated struct Photo: Identifiable, Hashable, Sendable {
     /// Decoded edit settings (defaults when never edited or undecodable).
     var editSettings: EditSettings { EditSettings.fromJSON(editSettingsJSON) ?? EditSettings() }
     var hasEdits: Bool { editSettingsJSON != nil && !editSettings.isDefault }
+
+    // MARK: Virtual copies
+
+    var isVirtualCopy: Bool { masterID != nil }
+    /// The master's id for a virtual copy, else this photo's own id.
+    var masterOrSelfID: Int64 { masterID ?? id }
+    /// Grid / filmstrip title: the file name, or "IMG_1234 · Copy 1" for a virtual copy.
+    var displayTitle: String {
+        guard isVirtualCopy else { return fileName }
+        return "\((fileName as NSString).deletingPathExtension) · \(copyName ?? "Copy")"
+    }
+    /// "Virtual copy of IMG_1234.DNG (Copy 1)" (nil for masters).
+    var virtualCopyDescription: String? {
+        isVirtualCopy ? "Virtual copy of \(fileName) (\(copyName ?? "Copy"))" : nil
+    }
+    /// Base name for exported files: "IMG_1234", or "IMG_1234 (Copy 1)" for a virtual copy, so a
+    /// master and its copies can be exported into the same folder without colliding.
+    var exportBaseName: String {
+        let base = (fileName as NSString).deletingPathExtension
+        guard isVirtualCopy else { return base }
+        let name = (copyName ?? "Copy").replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        return "\(base) (\(name))"
+    }
 }
 
 /// A virtual folder (collection). Arbitrarily nested; `parentID == nil` means top level.

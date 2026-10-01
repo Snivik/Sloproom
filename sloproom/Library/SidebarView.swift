@@ -10,7 +10,8 @@
 //  - Double-click (or context menu "Rename") renames; ⌫ (registry action) / "Delete Folder…" asks for confirmation.
 //  - Drag a folder onto a folder to nest it, onto the top / bottom edge of a row to reorder,
 //    onto the "Folders" header to move it to the top level. Drag photos from the grid onto a
-//    folder to add them (hold ⌥ to move them out of the shown folder).
+//    folder to add them (hold ⌘ to move them out of the shown folder, ⌥ to drop virtual copies;
+//    `PhotoDropVerb`).
 //  Rows: see `FolderRowView.swift`; actions: `FolderActions.swift`.
 //
 

@@ -26,6 +26,7 @@ struct MainWindowView: View {
         .fullScreenPreviewShortcut(model: model)
         .exportSheet(model: model)
         .catalogTransferSheet(model: model)
+        .virtualCopySupport(model: model)   // Rename Virtual Copy alert (VirtualCopies/)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("Mode", selection: $model.mode) {

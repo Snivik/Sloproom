@@ -34,8 +34,9 @@ enum SloproomDrag {
     static var isOptionDown: Bool { NSEvent.modifierFlags.contains(.option) }
 }
 
-/// Drop on a folder row: photos are added (⌥ = moved out of the shown folder); folders are
-/// nested (middle of the row) or placed before / after it (top / bottom quarter).
+/// Drop on a folder row: photos are added (⌘ = moved out of the shown folder, ⌥ = virtual
+/// copies; `PhotoDropVerb`); folders are nested (middle of the row) or placed before / after it
+/// (top / bottom quarter).
 struct FolderRowDropDelegate: DropDelegate {
     let folderID: Int64
     let rowHeight: CGFloat
@@ -51,26 +52,31 @@ struct FolderRowDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let z = proposedZone(info)
         if z != zone { zone = z }
-        guard z != nil else { return DropProposal(operation: .forbidden) }
+        guard z != nil else { PhotoDropFeedback.shared.update(nil, .add); return DropProposal(operation: .forbidden) }
         if case .photos? = SloproomDrag.current {
-            let moves = SloproomDrag.isOptionDown && model.shownFolderID != nil && model.shownFolderID != folderID
-            return DropProposal(operation: moves ? .move : .copy)
+            let verb = PhotoDropVerb.current(onto: folderID, model: model)
+            PhotoDropFeedback.shared.update(folderID, verb)
+            return DropProposal(operation: verb.operation)
         }
         return DropProposal(operation: .move)
     }
 
-    func dropExited(info: DropInfo) { zone = nil }
+    func dropExited(info: DropInfo) {
+        zone = nil
+        if PhotoDropFeedback.shared.folderID == folderID { PhotoDropFeedback.shared.update(nil, .add) }
+    }
 
     func performDrop(info: DropInfo) -> Bool {
         let z = proposedZone(info)
         zone = nil
+        PhotoDropFeedback.shared.update(nil, .add)
         guard let z else { return false }
-        let move = SloproomDrag.isOptionDown
+        let verb = PhotoDropVerb.current(onto: folderID, model: model)
         let folderID = folderID, model = model
         SloproomDrag.load(info) { payload in
             switch payload {
             case .photos(let ids):
-                FolderActions.addPhotos(ids, to: folderID, move: move, model: model)
+                verb.perform(ids, onto: folderID, model: model)
             case .folder(let id):
                 if let dest = FolderDropPlanner.destination(moving: id, onto: folderID, zone: z, folders: model.folders) {
                     FolderActions.move(id, to: dest, model: model)

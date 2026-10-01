@@ -46,6 +46,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
 | `Shortcuts/*` | keyboard shortcut registry (`ShortcutModel`, `ShortcutStore`), dispatcher + menu items (`ShortcutKeys`), Settings > Keyboard, tooltip helpers (`SegmentHelp`), DevScript |
 | `CatalogTransfer/*` | Export Catalog / Import Catalog (engine `CatalogTransfer.swift`; controller, sheet + `CatalogTransferCommands`, DevScript) |
+| `VirtualCopies/*` | virtual copies: catalog API (`Catalog+VirtualCopies.swift`), preview seeding (`VirtualCopyPreviews`), actions / menus / badge / rename alert (`VirtualCopyActions`), drop verbs (`PhotoDropVerb`), DevScript `vc …` |
 
 Conventions: new catalog API as `nonisolated extension Catalog` in the feature's own
 `Catalog+Feature.swift`; feature tables via `applyMigration(named:sql:)`; engine files (anything
@@ -70,6 +71,12 @@ a harness compiles) import no SwiftUI/AppKit and mark types `nonisolated`.
   idempotent, tracked in `applied_migrations`.
 - Tables: `photos`, `folders`, `folder_photos`, `roots`, `crop_presets`, `applied_migrations`
   (see `Catalog.swift` for DDL). Dates are REAL Unix seconds. `photos.flag`: -1 reject, 0 none, 1 pick.
+  Schema v2 (virtual copies): `photos.master_id` (→ `photos(id)` ON DELETE CASCADE; NULL = a master) and
+  `photos.copy_name`; `path` is unique **among masters only** (partial index `idx_photos_master_path ON
+  photos(path) WHERE master_id IS NULL`). Path lookups / dedupe must add `AND master_id IS NULL` and upserts
+  use `ON CONFLICT(path) WHERE master_id IS NULL`. `migrate()` runs with foreign keys OFF (set outside the
+  transaction) and refuses to commit if `foreign_key_check` finds new broken references (12-step rebuild;
+  21,564-photo catalog: ≈ 40 ms).
   `photos.edit_version` increments on every `saveEditSettings`. `photos.root_id` → `roots` ON DELETE SET NULL.
   `folders.parent_id` and `folder_photos.*` cascade on delete. Foreign keys ON, WAL.
 - Raw access for extensions: `catalog.db.run(sql, args)`, `db.query(sql, args) { row in … }`,
@@ -81,11 +88,11 @@ a harness compiles) import no SwiftUI/AppKit and mark types `nonisolated`.
 
 ```swift
 // Photos
-func insertPhoto(_ photo: Photo) throws -> Int64                 // upsert by path: existing id if present
+func insertPhoto(_ photo: Photo) throws -> Int64                 // upsert by path (masters): existing id if present
 func insertPhotos(_ photos: [Photo]) throws -> [Int64]           // one transaction; ids in input order
 func photo(id: Int64) throws -> Photo?
 func photos(ids: [Int64]) throws -> [Photo]
-func photoID(path: String) throws -> Int64?
+func photoID(path: String) throws -> Int64?                      // the master at path (never a virtual copy)
 func photoIDExists(path: String) throws -> Bool
 func totalPhotoCount() throws -> Int
 func photos(in: PhotoSource, filter: PhotoFilter = .init(), sort: PhotoSort = .init()) throws -> [Photo]
@@ -93,7 +100,12 @@ func setFlag(_ flag: Flag, for photoIDs: some Collection<Int64>) throws
 func setRating(_ rating: Int, for photoIDs: some Collection<Int64>) throws     // clamped 0...5
 func setSidecarPath(_ path: String?, for photoID: Int64) throws
 func saveEditSettings(_ settings: EditSettings?, for photoID: Int64) throws -> Int  // new edit_version; nil / EditSettings() (isEmpty) → NULL
-func removePhotos(ids: some Collection<Int64>) throws           // catalog only, never files
+func removePhotos(ids: some Collection<Int64>) throws           // catalog only, never files; masters take their copies along
+
+// Virtual copies (VirtualCopies/Catalog+VirtualCopies.swift)
+func createVirtualCopies(of: [Int64], inFolder: Int64? = nil, initialSettings: ((Photo) -> EditSettings?)? = nil) throws -> [CreatedVirtualCopy]
+func renameVirtualCopy(id: Int64, to: String) throws
+func virtualCopyIDs(ofMasters:) / cascadedVirtualCopyCount(removing:) / idsIncludingVirtualCopies(_:) / virtualCopyCount()
 
 // Folders (virtual, nested; a photo can be in many; deleting never deletes photos)
 func allFolders() throws -> [Folder]                             // flat; build tree with FolderTree.build
@@ -135,7 +147,38 @@ normalized with the same function whenever they are matched to roots (`coveringR
 `upsertRoot`), so `/private/tmp/x` photos attach to a `/tmp/x` root.
 
 `Photo` notes: `width/height` are stored (un-oriented) pixels; `orientedSize` applies EXIF
-orientation; `editSettings` decodes `editSettingsJSON` (defaults if nil); `hasEdits`; `url`, `sidecarURL`.
+orientation; `editSettings` decodes `editSettingsJSON` (defaults if nil); `hasEdits`; `url`, `sidecarURL`;
+virtual copies: `masterID`, `copyName`, `isVirtualCopy`, `displayTitle` ("IMG_1234 · Copy 1"),
+`virtualCopyDescription`, `exportBaseName` ("IMG_1234 (Copy 1)").
+
+`photos(in:filter:sort:)` lists every copy right after its master (copy number order) under any sort
+(`Catalog.groupingVirtualCopies`); a copy whose master isn't listed keeps its own place.
+
+### Virtual copies (`VirtualCopies/`, harness `Tools/vcopies_check.swift`)
+
+- A virtual copy = another `photos` row with the master's path, root, metadata, sidecar and **import
+  date** (so Previous Import is unchanged); its own edit settings / edit version, flag, rating, folders,
+  previews. It starts with its SOURCE's settings, edit version, flag and rating (copy of a copy → same
+  master). `copy_name` = "Copy N" (1 + highest existing N of that master) or a user name (Rename Virtual
+  Copy…). The file on disk is never touched or duplicated. `initialSettings` is the seam for e.g.
+  per-folder default crops.
+- UI (`VirtualCopyActions`): Photo > Create Virtual Copy (⌘', registry `createVirtualCopy`; copies of
+  `actionTargetIDs` added to the shown folder, selected; in Develop the copy opens), Photo > Rename Virtual
+  Copy…, grid context menu (Create Virtual Copy, Rename…, Copy to Folder ▸ next to Add to / Move to Folder ▸,
+  New Folder with Virtual Copies), filmstrip context menu (`FilmstripPhotoMenu`), Develop inspector row
+  (`VirtualCopyInfoRow`). Help texts: Add = same photo, edits shared; Move = out of this folder; Copy =
+  independent virtual copy with its own edits.
+- Pending Develop edits are flushed before copying. Previews are SEEDED (`VirtualCopyPreviews.seed`):
+  the source's disk previews are cloned to the copy's names (same edit version → same key) and its recent
+  Develop render is stored for the copy, so a new copy shows at once (opening it in Develop: 0 ms to a sharp
+  image). Removing photos from the catalog (`FolderActions.removeFromCatalog`) also discards the previews of
+  everything removed (incl. cascaded copies), 1.5 s later off-main. Confirmation: "Remove this photo and
+  its N virtual copies from the catalog?".
+- Grid / filmstrip: `VirtualCopyBadge` (monochrome square.on.square, top-right, tooltip "Virtual copy of
+  IMG_1234.DNG (Copy 1)"), titles `displayTitle`. Export names: `<base> (Copy 1).jpg` (then `-1`, `-2`…).
+- Lightroom import still maps LR virtual copies to their master (collections only); its path dedupe and
+  the SD import fingerprints ignore our copies; relink rewrites copies with their master; Export / Import
+  Catalog carry them (older exports migrate on open).
 
 ### Change notifications
 
@@ -236,7 +279,7 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
 Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder, Import Photos…,
 Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export…, Export Catalog…, Import Catalog…; Edit > Undo/Redo route to the develop session
 in Develop mode, otherwise to the responder chain; Edit > Select All Photos; Photo > Pick, Unflag, Reject, Auto Advance After Flagging,
-Set Rating (0–5), Copy / Paste Settings, Before / After; View > Library, Develop, Keyboard Shortcuts…; Library > Previews ▸ (build /
+Set Rating (0–5), Copy / Paste Settings, Before / After, Create Virtual Copy, Rename Virtual Copy…; View > Library, Develop, Keyboard Shortcuts…; Library > Previews ▸ (build /
 regenerate / discard for selection, build all, clean cache); Help > Keyboard Shortcuts…. Every item with a shortcut is a
 `ShortcutMenuButton` (keys: see the registry below). Menu items that act on the selection read
 `model.actionTargetIDs` when chosen (menu-bar Commands are not re-rendered on selection changes, so
@@ -298,6 +341,7 @@ View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a to
 | Pick / Unflag / Reject | P / U / X | Everywhere | menu (`SloproomCommands` → `FlagActions`) |
 | Rating None…★★★★★ (`rating0`–`rating5`) | 0–5 | Everywhere | menu |
 | Copy / Paste Settings, Before / After | ⇧⌘C / ⇧⌘V, `\` | Everywhere | menu |
+| Create Virtual Copy (`createVirtualCopy`) | ⌘' | Everywhere (Library & Develop; ignored while the full-screen preview shows) | menu (`SloproomCommands` → `VirtualCopyActions.createFromMenu`) |
 | Library (`libraryMode`) | G | Everywhere | menu |
 | Develop (`developMode`) | D | Everywhere | menu + dispatcher handler (AppKit's Start Dictation takes plain D) — `LibraryKeyMonitor` |
 | Select All Photos (`selectAllPhotos`) | ⌘A (was ⌥⌘A in the menu) | Library & Develop | dispatcher (`LibraryKeyMonitor`); the menu item shows no key (SwiftUI drops the duplicate of Edit > Select All) |
@@ -338,6 +382,12 @@ pinch / ⌘- or ⌥-scroll zoom and scroll panning (`ZoomEventMonitor`'s scroll/
 - Photo drags (grid + filmstrip): `PhotoDrag.provider/preview` (`Library/Flags/PhotoDrag.swift`).
 - In-app drag & drop: plain-text `SloproomDragPayload` (`sloproom-drag:photos:1,2` / `…folder:7`)
   in an `NSItemProvider` via `SloproomDrag.provider(_:)`; drop targets decode it with `SloproomDrag.load`.
+- Photos dropped on a folder row (`PhotoDropVerb`, Finder-like): plain = **Add** (same photo; proposal
+  `.alias`), ⌘ = **Move** out of the shown folder (only while another folder is shown; `.move`), ⌥ =
+  **Copy** = new virtual copies inside the target (`.copy`). The hovered row shows an Add / Move / Copy
+  capsule (`PhotoDropVerbBadge`); the row tooltip lists the modifiers. SwiftUI's `onDrag` source offers
+  only `.copy`, yet all three proposals drop (checked with `vc droptest`, which drives SwiftUI's real
+  `_PlatformDraggingDestinationView` with a fake `NSDraggingInfo`).
 
 ## EditSettings (`Develop/EditSettings.swift`)
 
@@ -667,7 +717,7 @@ edited elsewhere are dropped after `.photosUpdated`. `purgeAll()` resets all in-
   from the original; Orientation 1, EXIF pixel size = output, ColorSpace sRGB, Software "Sloproom";
   no thumbnail, no CFA/DNG fields. RAWs without `OffsetTime*` take them from the sidecar JPEG when
   the capture wall-clock time matches (Leica).
-- Files (`ExportFiles`): name = original base name + `.jpg`, `-1`, `-2`… for names that exist or
+- Files (`ExportFiles`): name = original base name (`Photo.exportBaseName`: "IMG (Copy 1)" for a virtual copy) + `.jpg`, `-1`, `-2`… for names that exist or
   are claimed by the same job; written to a hidden `.sloproom-export-*.jpg.tmp` in the destination
   (exclusive create + fsync), then `renamex_np(RENAME_EXCL)`. `checkWriteAccess` = probe file:
   `ExportError.noWriteAccess` → "Sloproom doesn't have write access to “…”. Enable User Selected

@@ -26,6 +26,7 @@ struct DevelopInspectorView: View {
             }
             .buttonStyle(.borderless)
             .padding(10)
+            VirtualCopyInfoRow(photoID: session.photo.id)   // "Virtual copy of … (Copy 1)" + Rename…
 
             Picker("Tool", selection: $session.activeTool) {
                 Text("Adjust").tag(DevelopTool.none)
