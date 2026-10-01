@@ -38,6 +38,29 @@ enum DevTools {
         }
     }
 
+    /// DevScript `devphoto <folder name>|<file path>`: adds ONE photo by reference (its directory
+    /// becomes a root) to the top-level folder of that name, creating the folder if needed.
+    static func addPhoto(_ arg: String, model: AppModel) {
+        let parts = arg.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2 else { print("DevTools: devphoto <folder>|<path>"); return }
+        let url = URL(fileURLWithPath: parts[1])
+        let catalog = model.catalog
+        do {
+            _ = try SecurityScopeManager.shared.registerRoot(url: url.deletingLastPathComponent(), in: catalog)
+            if try catalog.photoID(path: url.path) == nil {
+                guard let meta = PhotoMetadataReader.read(url: url, sidecar: nil) else { print("DevTools: unreadable \(url.path)"); return }
+                try catalog.insertPhotos([Photo(url: url, metadata: meta, importDate: Date(), sidecarPath: nil)])
+            }
+            guard let photoID = try catalog.photoID(path: url.path) else { return }
+            let folderID = try model.folders.first { $0.parentID == nil && $0.name == parts[0] }?.id
+                ?? catalog.createFolder(name: parts[0])
+            try catalog.addPhotos([photoID], toFolder: folderID)
+            print("DevTools: photo \(photoID) in folder \(folderID) (\(parts[0]))")
+        } catch {
+            model.report(error)
+        }
+    }
+
     /// Recursively adds supported images under `directory` (caller has access). Returns count.
     nonisolated static func addPhotos(under directory: URL, catalog: Catalog) throws -> Int {
         let fm = FileManager.default
@@ -159,6 +182,7 @@ enum DevScript {
                 case "window": DevelopDevScript.resizeWindow(arg)   // "window 1400 2200" (points)
                 case "scroll": DevelopDevScript.scrollInspector(Double(arg) ?? 0)   // 0 = top ... 1 = bottom
                 case "quit": NSApp.terminate(nil)
+                case "devphoto": DevTools.addPhoto(arg, model: model)   // "devphoto Development|/path/to/file.DNG"
                 case let c where c.hasPrefix("import"): ImportDevCommands.run(c, arg: arg, model: model)
                 case "export": await ExportDevScript.run(arg, model: model)   // see Export/UI/ExportDevScript.swift
                 case "catalog": await CatalogTransferDevScript.run(arg, model: model)   // see CatalogTransfer/CatalogTransferDevScript.swift
