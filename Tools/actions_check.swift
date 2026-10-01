@@ -56,7 +56,7 @@ struct ActionsCheck {
         check(Set(all.map(\.id)).count == all.count, "ids unique")
         check(Set(all.map(\.id)) == Set(PhotoActionID.allCases), "every PhotoActionID is registered")
         let singles = Set(all.filter { $0.arity == .single }.map(\.id))
-        check(singles == [.openInDevelop, .showInFinder, .renameVirtualCopy, .copySettings], "single actions: \(singles.map(\.rawValue).sorted())")
+        check(singles == [.openInDevelop, .showInFinder, .renameVirtualCopy], "single actions: \(singles.map(\.rawValue).sorted())")
         check(Set(all.filter { $0.arity == .many }.map(\.id)) == [.syncSettings], "many actions: Sync Settings")
         check(all.map(\.group) == all.map(\.group).sorted(), "registry is in menu-group order")
 
@@ -86,9 +86,9 @@ struct ActionsCheck {
         // Develop hidden.
         let dev3 = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0.availability(count: 3, mode: .develop)) })
         check(dev3[.openInDevelop] == .hidden, "Develop: Open in Develop hidden")
-        check(dev3[.showInFinder] == .disabled("Select a single photo") && dev3[.copySettings] == .disabled("Select a single photo")
+        check(dev3[.showInFinder] == .disabled("Select a single photo")
               && dev3[.renameVirtualCopy] == .disabled("Select a single photo"), "Develop ×3: single actions disabled (\"Select a single photo\")")
-        check([.pick, .bulkCrop, .pasteSettings, .resetEdits, .syncSettings, .addToFolder, .copyToFolder, .exportJPEG, .createVirtualCopy]
+        check([.pick, .copySettings, .bulkCrop, .pasteSettings, .resetEdits, .syncSettings, .addToFolder, .copyToFolder, .exportJPEG, .createVirtualCopy]
                 .allSatisfy { dev3[$0] == .enabled }, "Develop ×3: multi actions + Sync enabled")
         let lib1 = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0.availability(count: 1, mode: .library)) })
         check(lib1[.syncSettings] == .disabled("Select two or more photos") && lib1[.openInDevelop] == .enabled && lib1[.copySettings] == .enabled,

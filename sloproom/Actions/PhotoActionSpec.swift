@@ -166,8 +166,8 @@ nonisolated struct PhotoActionSpec: Sendable, Identifiable {
                         help: "Flag as rejected", arity: .multiple, shortcut: .reject, group: .flags),
 
         PhotoActionSpec(.copySettings, "Copy Settings", symbol: "doc.on.doc",
-                        help: "Copy this photo's develop settings (Paste Settings applies them to other photos)",
-                        arity: .single, shortcut: .copySettings, group: .edits),
+                        help: "Copy the develop settings of the focused photo (Paste Settings applies them to other photos)",
+                        arity: .multiple, shortcut: .copySettings, group: .edits),
         PhotoActionSpec(.pasteSettings, "Paste Settings",
                         count: { $0 > 1 ? "Paste Settings to \(photos($0))" : "Paste Settings" }, symbol: "doc.on.clipboard",
                         help: "Paste the copied settings (the sections chosen in “Choose Settings to Paste…”); one undo step",

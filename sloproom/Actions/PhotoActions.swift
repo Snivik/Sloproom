@@ -95,7 +95,8 @@ enum PhotoActions {
         case .unflag: flag(.none, targets, model: model, fromMenuBar: fromMenuBar)
         case .reject: flag(.reject, targets, model: model, fromMenuBar: fromMenuBar)
         case .copySettings:
-            copySettings(ids[0], model: model)
+            // Several selected: copy from the most-selected (focused) photo, like Lightroom.
+            copySettings(targets.primaryID ?? ids[0], model: model)
         case .pasteSettings:
             pasteSettings(ids, model: model)
         case .pasteSettingsChoose:
