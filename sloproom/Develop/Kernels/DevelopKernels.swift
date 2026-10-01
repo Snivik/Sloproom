@@ -19,7 +19,7 @@ import CoreImage
 nonisolated enum DevelopKernels {
     /// Perceptual luminance P in RGB (alpha 1). Guide/base image for local operations.
     static let perceptualLuma = kernel("dk_perceptualLuma")
-    /// min(r, g, b) in RGB — dark channel for dehaze.
+    /// Perceptual (P-encoded) min(r, g, b) in RGB — dark channel for dehaze.
     static let darkChannel = kernel("dk_darkChannel")
     /// Guided filter: (guide I, value p) -> (I, I², p, I·p).
     static let guidedPack = kernel("dk_gfPack")
@@ -27,11 +27,12 @@ nonisolated enum DevelopKernels {
     static let guidedCoefficients = kernel("dk_gfAB")
     /// Guided filter: (guide I, upsampled (a, b)) -> q = a·I + b in RGB.
     static let guidedApply = kernel("dk_gfApply")
-    /// (image, base, a = contrast/highlights/shadows/whites, b = blacks/useBase/-/-), all -1...1.
+    /// (image, base, a = contrast/highlights/shadows/whites, b = blacks/useBase/liftLo/liftHi,
+    ///  hn, hp, sn, sp, m, d = AdjustmentOps.ToneModel rows), sliders -1...1.
     static let tone = kernel("dk_tone")
-    /// (image, texFine, texCoarse, clarityBase, p = texture/clarity/-/-).
+    /// (image, textureBlur, clarityBase, k = texture/clarity/-/-, m = AdjustmentOps.PresenceModel detail row), -1...1.
     static let detail = kernel("dk_detail")
-    /// (image, darkBase, amount -1...1).
+    /// (image, darkBase, amount -1...1, plus = dehaze+ row, minus = dehaze− row of AdjustmentOps.PresenceModel).
     static let dehaze = kernel("dk_dehaze")
     /// (image, p = vibrance/saturation/-/-).
     static let vibranceSaturation = kernel("dk_vibSat")
@@ -41,6 +42,10 @@ nonisolated enum DevelopKernels {
     static let vignette = kernel("dk_vignette")
     /// (image, noise (r channel, mean 0.5), amount).
     static let grain = kernel("dk_grain")
+    /// (image, range = (start, end) max-channel levels): fades color to neutral (same luminance) towards the raw clip.
+    static let clipNeutral = kernel("dk_clipNeutral")
+    /// (image, knee P, hue keep 0…1): (partly) hue-preserving per-channel highlight shoulder of the extended range into 0…1 (OutputStage).
+    static let shoulder = kernel("dk_shoulder")
 
     /// Each kernel is compiled from its OWN Metal source (shared helpers + one function):
     /// Core Image resolves every kernel of a multi-function Metal string to the same function.
@@ -59,7 +64,7 @@ nonisolated enum DevelopKernels {
 
     /// Compiles all kernels (call once off the main thread, e.g. when Develop opens).
     static func warmUp() {
-        _ = [perceptualLuma, darkChannel, guidedPack, guidedCoefficients, guidedApply, tone, detail, dehaze, vibranceSaturation, colorMixer, vignette, grain]
+        _ = [perceptualLuma, darkChannel, guidedPack, guidedCoefficients, guidedApply, tone, detail, dehaze, vibranceSaturation, colorMixer, vignette, grain, shoulder, clipNeutral]
     }
 
     /// Runs a kernel over `image`'s extent; returns `image` unchanged if the kernel is unavailable.
@@ -123,34 +128,53 @@ nonisolated enum DevelopKernels {
                           -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);
         }
 
-        /// Contrast in P around a mid-gray pivot. c in -1...1. Keeps 0 and 1 fixed for c > 0.
-        inline float contrastCurve(float x, float c) {
+        /// Smooth max(t, 0) with a knee of width k (hyperbola): 0 far below, t far above.
+        inline float softPos(float t, float k) { return 0.5 * (t + sqrt(t * t + k * k)); }
+
+        /// Contrast: a power curve in P around a mid-gray pivot (= a slope change in log
+        /// luminance), c in -1...1. Extends smoothly above 1; OutputStage rolls the top off.
+        inline float contrastCurve(float x, float c, float k) {
             const float pv = 0.46;
-            if (c == 0.0) { return x; }
-            if (c < 0.0) { return mix(x, pv + (x - pv) * 0.55, -c); }
-            if (x <= 0.0 || x >= 1.0) { return x; }
-            float g = 1.0 + 0.9 * c;
-            return x < pv ? pv * pow(x / pv, g) : 1.0 - (1.0 - pv) * pow((1.0 - x) / (1.0 - pv), g);
+            if (c == 0.0 || x <= 0.0) { return x; }
+            return pv * pow(x / pv, exp2(k * c));
         }
 
-        /// Highlights / shadows / whites / blacks / contrast on perceptual luminance.
-        /// b = local (smoothed) P used for the highlight/shadow masks.
-        inline float toneP(float p, float b, float4 a, float blacks) {
-            float x = contrastCurve(p, a.x);
-            // Shadows / highlights: gains driven by the smooth base, so local detail is kept.
-            float ws = 1.0 - smoothstep(0.02, 0.55, b);
-            // Peaks in the bright tones; eases off on clipped white (that's the Whites slider's job).
-            float wh = smoothstep(0.45, 0.95, b) * (1.0 - 0.35 * smoothstep(0.98, 1.25, b));
-            float sg = a.z > 0.0 ? 1.1 * a.z : 0.5 * a.z;
-            float hg = a.y > 0.0 ? 0.35 * a.y : 0.5 * a.y;
-            x *= (1.0 + sg * ws) * (1.0 + hg * wh);
-            // Whites: scale the top of the curve.
-            x *= 1.0 + 0.35 * a.w * smoothstep(0.25, 1.0, x);
+        /// Highlights / shadows (EV gains from the smooth base's log luminance, Lightroom-like:
+        /// power-law compression / expansion of the base above / below a pivot), whites / blacks /
+        /// contrast, on perceptual luminance. b = local (smoothed) P. Model rows (see AdjustmentOps.ToneModel):
+        /// hn/hp/sn/sp = (slope EV per stop, pivot log2 Y, knee width stops, cap EV), m = (-, contrast, whites, blacks).
+        inline float toneP(float p, float b, float bs, float4 a, float blacks,
+                           float4 hn, float4 hp, float4 sn, float4 sp, float4 m, float4 d) {
+            float x = contrastCurve(p, a.x, m.y);
+            float lb = log2(max(fromP(max(b, 0.0)), 1e-6));
+            float evH = 0.0, evS = 0.0;
+            if (a.y < 0.0) { evH = a.y * min(hn.x * softPos(lb - hn.y, hn.z), hn.w); }
+            if (a.y > 0.0) { evH = a.y * min(hp.x * softPos(lb - hp.y, hp.z), hp.w); }
+            if (a.z > 0.0) { evS = a.z * min(sp.x * softPos(sp.y - lb, sp.z), sp.w); }
+            if (a.z < 0.0) { evS = a.z * min(sn.x * softPos(sn.y - lb, sn.z), sn.w); }
+            // Applied as a gain on P (local contrast scales with the region, like a ratio); a share
+            // `keep` of the detail around the smooth base `bs` keeps its perceptual amplitude instead
+            // (d.x for highlights, d.y for shadows).
+            float g = exp2((evH + evS) / 2.2);
+            float keep = (abs(evH) * d.x + abs(evS) * d.y) / max(abs(evH) + abs(evS), 1e-6);
+            x = x * g + keep * (1.0 - g) * (x - bs);
+            // Whites: scale the top of the curve (incl. the extended range above 1).
+            x *= 1.0 + m.z * a.w * smoothstep(0.25, 1.0, x);
             // Blacks: move the black point, fading out towards the midtones.
-            float bp = -0.07 * blacks;
+            float bp = -m.w * blacks;
             float moved = (x - bp) / (1.0 - bp);
             x = mix(moved, x, smoothstep(0.0, 0.55, x));
             return x;
+        }
+
+        /// withP for tone lifts: keeps the pixel's chroma (luminance ratio) except in the deepest
+        /// shadows (P < lo…hi), where lifting adds neutral light so noise isn't colored up.
+        inline float3 withPLift(float3 c, float y, float p, float p2, float lo, float hi) {
+            float y2 = fromP(max(p2, 0.0));
+            float3 ratio = withLuma(c, y, y2);
+            if (p2 <= p) { return ratio; }
+            float m = 1.0 - smoothstep(lo, hi, p);
+            return mix(ratio, c + (y2 - y), m);
         }
 
         /// Smooth partition of unity over the 8 color-mixer bands (OkLCh hue, degrees).
@@ -183,7 +207,7 @@ nonisolated enum DevelopKernels {
     """#,
         "dk_darkChannel": #"""
     [[stitchable]] float4 dk_darkChannel(sample_t s) {
-        float d = max(min(min(s.r, s.g), s.b), 0.0);
+        float d = dk::toP(max(min(min(s.r, s.g), s.b), 0.0));
         return float4(d, d, d, 1.0);
     }
     """#,
@@ -207,46 +231,52 @@ nonisolated enum DevelopKernels {
     }
     """#,
         "dk_tone": #"""
-    [[stitchable]] float4 dk_tone(sample_t s, sample_t base, float4 a, float4 b) {
+    [[stitchable]] float4 dk_tone(sample_t s, sample_t base, float4 a, float4 b,
+                                  float4 hn, float4 hp, float4 sn, float4 sp, float4 m, float4 d) {
         float y = dk::luma(s.rgb);
         float p = dk::toP(max(y, 0.0));
-        float bp = b.y > 0.5 ? mix(p, base.r, 0.8) : p;
-        float p2 = dk::toneP(p, bp, a, b.x);
-        return float4(dk::withP(s.rgb, max(y, 0.0), p, p2), s.a);
+        float bs = b.y > 0.5 ? base.r : p;
+        float bp = mix(p, bs, m.x);
+        float p2 = dk::toneP(p, bp, bs, a, b.x, hn, hp, sn, sp, m, d);
+        return float4(dk::withPLift(s.rgb, max(y, 0.0), p, p2, b.z, b.w), s.a);
     }
     """#,
         "dk_detail": #"""
-    [[stitchable]] float4 dk_detail(sample_t s, sample_t fine, sample_t coarse, sample_t clarityBase, float4 k) {
+    [[stitchable]] float4 dk_detail(sample_t s, sample_t texBlur, sample_t clarityBase, float4 k, float4 m) {
         float y = dk::luma(s.rgb);
         float p = dk::toP(max(y, 0.0));
-        // Texture: band-pass detail (fine minus coarse blur) — skips pixel-level noise.
-        float tex = fine.r - coarse.r;
-        float kt = k.x > 0.0 ? 1.6 * k.x : 0.9 * k.x;
-        float pt = p + kt * tex;
-        // Clarity: detail relative to an edge-aware base, weighted to the midtones.
-        float mid = clamp(1.0 - pow(2.0 * clamp(p, 0.0, 1.0) - 1.0, 2.0), 0.0, 1.0);
-        float kc = k.y > 0.0 ? 0.9 * k.y : 0.7 * k.y;
+        // Texture: unsharp mask on P with a small radius (fine and medium detail; negative smooths).
+        float kt = k.x > 0.0 ? m.x * k.x : m.y * k.x;
+        float pt = p + kt * (p - texBlur.r);
+        // Clarity: local contrast around a large, mildly edge-aware base, weighted to the midtones.
+        float pc = clamp(p, 0.0, 1.0);
+        float mid = clamp(1.0 - pow(abs(2.0 * pc - 1.0), 2.0), 0.0, 1.0);
+        float kc = k.y > 0.0 ? m.z * k.y : m.w * k.y;
         float p2 = pt + kc * (p - clarityBase.r) * mid;
         return float4(dk::withP(s.rgb, max(y, 0.0), p, p2), s.a);
     }
     """#,
         "dk_dehaze": #"""
-    [[stitchable]] float4 dk_dehaze(sample_t s, sample_t darkBase, float amount) {
+    [[stitchable]] float4 dk_dehaze(sample_t s, sample_t darkBase, float amount, float4 plus, float4 minus) {
+        // Haze model I = J·t + A·(1 − t) on P-encoded channels (dark channel prior, airlight A):
+        // amount > 0 removes it (J = (I − A)/t + A, t from the smoothed dark channel),
+        // amount < 0 adds a veil whose density follows the dark channel.
         float3 c = s.rgb;
+        float3 pc = float3(dk::toP(c.r), dk::toP(c.g), dk::toP(c.b));
+        float d = clamp(darkBase.r, 0.0, 1.0);
         if (amount > 0.0) {
-            // Dark channel prior with a white airlight: J = (I - w*d) / (1 - w*d).
-            float w = 0.92 * amount;
-            float hz = w * clamp(darkBase.r, 0.0, 1.0);
-            float t = max(1.0 - hz, 0.2);
-            c = (c - hz) / t;
-            c = max(c, float3(-0.02));
+            float A = plus.y;
+            float t = max(1.0 - amount * plus.x * pow(d / A, plus.w), plus.z);
+            pc = (pc - A) / t + A;
+            pc = max(pc, float3(-0.02));
         } else {
-            float k = -amount * 0.45;
-            float y = dk::luma(c);
-            float3 haze = float3(0.55 + 0.35 * clamp(y, 0.0, 1.0));
-            c = mix(c, haze, k * (0.6 + 0.4 * clamp(darkBase.r * 2.0, 0.0, 1.0)));
+            float k = -amount;
+            float t = clamp(1.0 - k * (minus.x + minus.y * d), 0.05, 1.0);
+            pc = pc * t + minus.z * (1.0 - t);
+            float yp = dk::luma(pc);
+            pc = mix(pc, float3(yp), clamp(k * minus.w, 0.0, 1.0));
         }
-        return float4(c, s.a);
+        return float4(dk::fromP(pc.r), dk::fromP(pc.g), dk::fromP(pc.b), s.a);
     }
     """#,
         "dk_vibSat": #"""
@@ -322,6 +352,38 @@ nonisolated enum DevelopKernels {
         float p2 = p + (noise.r - 0.5) * amount * w;
         // Monochrome (luminance-only) grain.
         return float4(dk::withP(s.rgb, max(y, 0.0), p, p2), s.a);
+    }
+    """#,
+        "dk_clipNeutral": #"""
+    [[stitchable]] float4 dk_clipNeutral(sample_t s, float4 r) {
+        float m = max(max(s.r, s.g), s.b);
+        if (m <= r.x) { return s; }
+        float t = smoothstep(r.x, r.y, m);
+        float y = dk::luma(s.rgb);
+        return float4(mix(s.rgb, float3(y), t), s.a);
+    }
+    """#,
+        "dk_shoulder": #"""
+    [[stitchable]] float4 dk_shoulder(sample_t s, float knee, float hueKeep) {
+        // Per channel, in P: identity below the knee, then an exponential approach to 1
+        // (slope 1 at the knee, so no visible break). Bright saturated colors therefore move
+        // towards white like film / Lightroom; the middle channel is then re-placed between the
+        // new max and min channels so the HUE is kept (a plain per-channel curve turns a bright
+        // blue sky cyan).
+        float3 c = s.rgb;
+        float hi = max(max(c.r, c.g), c.b);
+        float kl = dk::fromP(knee);
+        if (hi <= kl) { return s; }
+        float w = 1.0 - knee;
+        float3 p = float3(dk::toP(max(c.r, 0.0)), dk::toP(max(c.g, 0.0)), dk::toP(max(c.b, 0.0)));
+        float3 q = select(p, knee + w * (1.0 - exp(-(p - knee) / w)), p > knee);
+        float3 o = float3(dk::fromP(q.r), dk::fromP(q.g), dk::fromP(q.b));
+        float lo = min(min(c.r, c.g), c.b);
+        if (hi - lo > 1e-5) {
+            float hiO = max(max(o.r, o.g), o.b), loO = min(min(o.r, o.g), o.b);
+            o = mix(o, loO + (hiO - loO) * (c - lo) / (hi - lo), hueKeep);
+        }
+        return float4(o, s.a);
     }
     """#,
     ]

@@ -8,9 +8,11 @@
 //
 //  RAW: CIRAWFilter does demosaic, white balance (camera space), exposure and baseline exposure
 //  in scene-linear light, then its base tone curve ("boost") and gamut mapping, and outputs
-//  display-referred LINEAR extended sRGB. Later stages therefore see a linear image where 1.0
-//  is diffuse white (values above 1 are recovered highlights). The baseline exposure gets a
-//  camera-matched offset (BaselineExposure) so "no edits" looks like the camera JPEG.
+//  display-referred LINEAR extended sRGB. With `extendedDynamicRangeAmount` the output keeps the
+//  highlights above diffuse white (1.0 = diffuse white, up to ~2.7 = the brightest raw data at
+//  default exposure) instead of clipping them; later stages work on that range and OutputStage
+//  rolls it off into 0…1 at the very end. The baseline exposure gets a camera-matched offset
+//  (BaselineExposure) so "no edits" looks like the camera JPEG.
 //
 
 import Foundation
@@ -18,6 +20,12 @@ import CoreGraphics
 import CoreImage
 
 nonisolated enum RawDecodeStage {
+    /// CIRAWFilter.extendedDynamicRangeAmount (0 = SDR, clipped at 1; 2 = maximum headroom).
+    static let extendedDynamicRange: Float = 2
+    /// Fraction of the raw clip level (max channel) where highlights start / finish fading to neutral.
+    static let clipNeutralStart = 0.2
+    static let clipNeutralEnd = 0.75
+
     static func apply(source: RenderSource, settings: EditSettings, scale: CGFloat, draft: Bool) -> CIImage {
         let wb = settings.whiteBalance
         let exposure = settings.tone.exposure
@@ -31,6 +39,10 @@ nonisolated enum RawDecodeStage {
             raw.isDraftModeEnabled = draft
             raw.exposure = Float(exposure)
             raw.baselineExposure = source.defaultBaselineExposure + Float(source.baselineOffset)
+            // Keep the scene highlights above diffuse white (up to ~1.5 stops) instead of letting the
+            // filter's SDR output clip them: Highlights / Whites / Exposure− recover detail from them,
+            // and OutputStage rolls them off at the end of the pipeline.
+            raw.extendedDynamicRangeAmount = Self.extendedDynamicRange
             switch wb.mode {
             case .asShot:
                 raw.neutralTemperature = Float(source.asShotTemperature ?? 6500)
@@ -41,6 +53,14 @@ nonisolated enum RawDecodeStage {
             }
             image = raw.outputImage ?? CIImage.empty()
             source.lock.unlock()
+            // Partially clipped raw highlights are reconstructed with a color cast (fully clipped
+            // ones come out neutral): fade them to neutral towards the clip level, like Lightroom's
+            // highlight recovery, so pulling them into view shows clean white/grey, not orange.
+            if source.highlightClip > 0 {
+                let clip = source.highlightClip * pow(2, exposure)
+                image = DevelopKernels.apply(DevelopKernels.clipNeutral, image,
+                                             [DevelopKernels.vector(Self.clipNeutralStart * clip, Self.clipNeutralEnd * clip)])
+            }
             if decodeScale > scale * 1.0001 {
                 // Resample the small remainder; a clamped margin gives the filter real edge pixels.
                 let e = image.extent

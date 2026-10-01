@@ -169,7 +169,9 @@ struct DevelopCheck {
             let (c0, c1, c2) = trio(combo)
             let dc = max(diff(c0, c1), diff(c1, c2))
             print(String(format: "  scale consistency: default %.4f (resampling baseline), combo %.4f", base, dc))
-            check(dc < base + 0.006, "combo looks the same at 1400 px, 2800 px and as a proxy")
+            // Tolerance 0.008 (was 0.006): Shadows now lifts as a ratio like Lightroom (calibrated in
+            // lrmatch_check), which also scales up the default resampling differences in the shadows.
+            check(dc < base + 0.008, "combo looks the same at 1400 px, 2800 px and as a proxy")
             var grainy = EditSettings()
             grainy.effects.grainAmount = 50
             let (g0, g1, g2) = trio(grainy)

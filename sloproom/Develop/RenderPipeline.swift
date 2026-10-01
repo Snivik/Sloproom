@@ -11,6 +11,7 @@
 //    5. MaskStage        local adjustments (masks, in oriented uncropped space)
 //    6. GeometryStage    quarter turns, flip, straighten, crop
 //    7. EffectsStage     post-crop vignette, grain
+//    8. OutputStage      highlight roll-off of the extended (RAW) range into 0…1
 //
 //  Color: Core Image working space is extended linear sRGB (CI default; `workingColorSpace`).
 //  Stage inputs/outputs are therefore linear, scene-referred, possibly > 1.0.
@@ -51,11 +52,14 @@ nonisolated final class RenderSource: @unchecked Sendable {
     let defaultBaselineExposure: Float
     /// Camera-matched brightness offset in EV added to the baseline (see BaselineExposure).
     let baselineOffset: Double
+    /// Raw clip level of the extended-range decode at exposure 0 (see BaselineExposure.Analysis; 0 = unknown).
+    let highlightClip: Double
     /// Deterministic per-file seed (grain).
     let seed: UInt32
     let lock = NSLock()
 
-    init(url: URL, rawFilter: CIRAWFilter?, image: CIImage?, orientedSize: CGSize, draft: Bool, baselineOffset: Double = 0) {
+    init(url: URL, rawFilter: CIRAWFilter?, image: CIImage?, orientedSize: CGSize, draft: Bool, baselineOffset: Double = 0,
+         highlightClip: Double = 0) {
         self.url = url
         self.rawFilter = rawFilter
         self.image = image
@@ -65,6 +69,7 @@ nonisolated final class RenderSource: @unchecked Sendable {
         self.draft = draft
         self.defaultBaselineExposure = rawFilter?.baselineExposure ?? 0
         self.baselineOffset = baselineOffset
+        self.highlightClip = highlightClip
         // FNV-1a of the file name: stable across launches (unlike Hasher) and across folders.
         var h: UInt32 = 2166136261
         for b in url.lastPathComponent.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
@@ -90,6 +95,9 @@ nonisolated struct RenderContext: Sendable {
     var requestedScale: CGFloat? = nil
     /// Deterministic per-photo seed (e.g. grain pattern).
     var seed: UInt32 = 0
+    /// The decode carries scene highlights above 1.0 (RAW with extended dynamic range):
+    /// OutputStage rolls them off into 0…1. False for JPEG/HEIC/TIFF sources (already display-referred).
+    var extendedRange: Bool = false
     /// The context that will draw this render. Stages use it to eagerly render tiny intermediates
     /// (blurred bases), which keeps full-resolution renders from recomputing the whole graph per tile.
     var ciContext: CIContext = RenderPipeline.context
@@ -145,8 +153,9 @@ nonisolated enum RenderPipeline {
             let native = raw.nativeSize
             let swapped = (5...8).contains(Int(raw.orientation.rawValue))
             let size = swapped ? CGSize(width: native.height, height: native.width) : native
-            let offset = BaselineExposure.offset(url: url, raw: raw)
-            return RenderSource(url: url, rawFilter: raw, image: nil, orientedSize: size, draft: draft, baselineOffset: offset)
+            let analysis = BaselineExposure.analyze(url: url, raw: raw)
+            return RenderSource(url: url, rawFilter: raw, image: nil, orientedSize: size, draft: draft,
+                                baselineOffset: analysis.offset, highlightClip: analysis.highlightClip)
         }
         guard let img = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else { return nil }
         let normalized = img.transformed(by: CGAffineTransform(translationX: -img.extent.minX, y: -img.extent.minY))
@@ -186,11 +195,11 @@ nonisolated enum RenderPipeline {
         }
         let ctx = RenderContext(fullSize: source.orientedSize, imageSize: image.extent.size,
                                 draft: draft || source.draft, applyCrop: applyCrop, requestedScale: scale * min(proxyScale, 1),
-                                seed: source.seed, ciContext: ciContext)
+                                seed: source.seed, extendedRange: source.isRAW, ciContext: ciContext)
         return applyStages(image, settings: settings, context: ctx)
     }
 
-    /// Stages 2–7 (tone … effects) on a stage-1 (RawDecodeStage) output with extent (0, 0, W, H).
+    /// Stages 2–8 (tone … output) on a stage-1 (RawDecodeStage) output with extent (0, 0, W, H).
     /// `render` uses it; zoomed region rendering (Develop/Zoom) feeds it a cached full-res decode.
     static func applyStages(_ decoded: CIImage, settings: EditSettings, context ctx: RenderContext) -> CIImage {
         var image = decoded
@@ -200,6 +209,7 @@ nonisolated enum RenderPipeline {
         image = MaskStage.apply(image, settings: settings, context: ctx)
         image = GeometryStage.apply(image, settings: settings, context: ctx)
         image = EffectsStage.apply(image, settings: settings, context: ctx)
+        image = OutputStage.apply(image, settings: settings, context: ctx)
         return image
     }
 

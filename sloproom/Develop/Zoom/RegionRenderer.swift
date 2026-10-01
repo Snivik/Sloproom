@@ -99,7 +99,8 @@ nonisolated final class RegionRenderer: @unchecked Sendable {
             decoded = RawDecodeStage.apply(source: source, settings: settings, scale: scale, draft: false)
         }
         let rc = RenderContext(fullSize: source.orientedSize, imageSize: decoded.extent.size, draft: false,
-                               applyCrop: applyCrop, requestedScale: scale, seed: source.seed, ciContext: ctx)
+                               applyCrop: applyCrop, requestedScale: scale, seed: source.seed,
+                               extendedRange: source.isRAW, ciContext: ctx)
         let full = RenderPipeline.applyStages(decoded, settings: settings, context: rc)
         let extent = full.extent
         guard !extent.isInfinite, extent.width > 0, extent.height > 0 else { return nil }
