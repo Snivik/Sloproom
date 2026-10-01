@@ -36,6 +36,9 @@ struct ShortcutsCheck {
         check(store.binding(for: .thumbnailLarger) == KeyCombo("=", .command) && store.binding(for: .thumbnailSmaller) == KeyCombo("-", .command),
               "⌘= / ⌘- = thumbnail size (Library)")
         check(store.binding(for: .zoomIn) == KeyCombo("=", .command), "⌘= = Zoom In (Develop & Full Screen)")
+        check(store.binding(for: .zoomFit) == KeyCombo("0", .command) && ShortcutAction.zoomFit.scope == .viewer, "⌘0 = Zoom to Fit (Develop & Full Screen)")
+        check(store.binding(for: .toggleSidebar) == KeyCombo("s", [.control, .command]) && ShortcutAction.toggleSidebar.isMenuCommand,
+              "⌃⌘S = View > Show / Hide Folders (menu)")
         check(store.binding(for: .exportCatalog) == nil && store.binding(for: .importCatalog) == nil, "Export / Import Catalog: no default")
         check(store.allConflicts.isEmpty, "no conflicts between the defaults (\(store.allConflicts.map { "\($0.0.id)/\($0.1.id)" }))")
         check(ShortcutAction.allCases.allSatisfy { !$0.title.isEmpty }, "every action has a display name")
@@ -79,6 +82,11 @@ struct ShortcutsCheck {
         check(store.candidates(for: KeyCombo("=", .command), in: .library) == [.thumbnailLarger], "⌘= in Library: thumbnails")
         check(store.candidates(for: KeyCombo("=", [.command, .shift]), in: .develop) == [.zoomIn], "⌘+ in Develop: zoom in")
         check(store.candidates(for: KeyCombo("=", .command), in: .fullScreen) == [.zoomIn], "⌘= in full screen: zoom in")
+        check(store.candidates(for: KeyCombo("-", [.command, .shift]), in: .develop) == [.zoomOut], "⌘_ in Develop: zoom out")
+        check(store.candidates(for: KeyCombo("0", .command), in: .develop) == [.zoomFit] && store.candidates(for: KeyCombo("0", .command), in: .library).isEmpty,
+              "⌘0 in Develop: fit; nothing in Library")
+        check(store.candidates(for: KeyCombo("s", [.control, .command]), in: .develop) == [.toggleSidebar]
+              && store.candidates(for: KeyCombo("s", [.control, .command]), in: .library) == [.toggleSidebar], "⌃⌘S in Library and Develop: sidebar")
         check(store.candidates(for: KeyCombo("delete"), in: .library) == [.removePhotos, .deleteFolder], "⌫ in Library: grid first, then sidebar")
         check(store.candidates(for: KeyCombo("escape"), in: .mask) == [.maskCancel], "Esc in the mask tool")
         check(store.overridden(by: .cropSwapAspect) == [.reject], "Swap Aspect overrides Reject in the crop tool")

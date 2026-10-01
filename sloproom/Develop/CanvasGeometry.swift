@@ -117,7 +117,7 @@ nonisolated enum ZoomLevel: Hashable, Sendable {
     case ratio(Double)
 
     /// Levels offered in the zoom menu / stepped through by ⌘= / ⌘-.
-    static let steps: [Double] = [0.25, 0.5, 1, 2, 4]
+    static let steps: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     static let maxRatio: Double = 8
 }
 
@@ -214,12 +214,19 @@ nonisolated struct CanvasViewport: Equatable, Sendable {
     /// Switches to `newLevel` keeping the image point under view point `anchor` fixed (nil = the
     /// view center stays put). Anchors outside the image are clamped onto it.
     func zoomed(to newLevel: ZoomLevel, anchor: CGPoint? = nil) -> CanvasViewport {
+        let a = anchor ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        return zoomed(to: newLevel, placing: displayedPoint(fromView: a), at: a)
+    }
+
+    /// Switches to `newLevel` with displayed-normalized point `d` (clamped onto the image) under
+    /// view point `a`, as far as the clamping of `imageRect` allows. A pinch places the point that
+    /// was under the fingers when it began, so the anchor never drifts while the image is still
+    /// smaller than the view (centered) on the way up.
+    func zoomed(to newLevel: ZoomLevel, placing d: CGPoint, at a: CGPoint) -> CanvasViewport {
         var v = self
         v.level = newLevel
         guard isValid, newLevel != .fit else { v.center = CGPoint(x: 0.5, y: 0.5); return v }
-        let a = anchor ?? CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-        var d = displayedPoint(fromView: a)
-        d = CGPoint(x: min(max(d.x, 0), 1), y: min(max(d.y, 0), 1))
+        let d = CGPoint(x: min(max(d.x, 0), 1), y: min(max(d.y, 0), 1))
         let s = v.scale
         let size = CGSize(width: displayedSize.width * s, height: displayedSize.height * s)
         // Keep d under a: origin = a - d * size; center = (view/2 - origin) / size.
@@ -242,11 +249,14 @@ nonisolated struct CanvasViewport: Equatable, Sendable {
     }
 
     /// Continuous zoom (pinch, ⌘-scroll) by `factor` around `anchor`; snaps to Fit at or below it.
-    func magnified(by factor: CGFloat, anchor: CGPoint?) -> CanvasViewport {
+    /// `holding`: displayed-normalized point to keep under `anchor` (a pinch's starting point);
+    /// nil = the point currently under `anchor`.
+    func magnified(by factor: CGFloat, anchor: CGPoint?, holding d: CGPoint? = nil) -> CanvasViewport {
         let target = scale * factor
         let fit = fitScale
         if target <= fit * 1.001 { return zoomed(to: .fit, anchor: anchor) }
         let ratio = min(Double(target * displayScale), ZoomLevel.maxRatio)
+        if let d, let anchor { return zoomed(to: .ratio(ratio), placing: d, at: anchor) }
         return zoomed(to: .ratio(ratio), anchor: anchor)
     }
 

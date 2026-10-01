@@ -11,7 +11,9 @@ struct MainWindowView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationSplitView(columnVisibility: DevelopPanels.shared.columnVisibility(mode: model.mode)) {
+        // Folder sidebar visibility per mode (read here so toggles re-render; see DevelopPanels).
+        let _ = DevelopPanels.shared.isSidebarHidden(in: model.mode)
+        NavigationSplitView(columnVisibility: DevelopPanels.shared.columnVisibility(model: model)) {
             SidebarView()
                 .id(ObjectIdentifier(model.catalog))   // fresh sidebar state after Import Catalog
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 480)
@@ -58,7 +60,7 @@ struct MainWindowView: View {
             }
         }
         .toolbarHelp([
-            "com.apple.SwiftUI.navigationSplitView.toggleSidebar": "Show / Hide Folders",
+            "com.apple.SwiftUI.navigationSplitView.toggleSidebar": store.help("Show / Hide Folders", .toggleSidebar),
             "Mode": "Library / Develop",
             "Flag Filter": "Show filmstrip photos by flag",
             "Import": store.help("Import Photos…", .importPhotos),

@@ -22,6 +22,22 @@
 //    fskey left|right|z|f|escape       real key event to the full-screen window
 //    winfull                           toggle the main window's native full screen (⌃⌘F)
 //    fullz <percent> [nx ny]           zoom in the full-screen preview
+//    pinch <x> <y> <factor> [steps] [ms] [hold]  REAL trackpad pinch: posts NSEvent .magnify events
+//                                      (began, `steps` changes (default 20) `ms` apart (default 16),
+//                                      ended) at canvas point x y through the event queue, so
+//                                      ZoomEventMonitor handles them like a real gesture; `hold` =
+//                                      don't send the end (then `pinch end`)
+//    pinch end                         sends the end of a held pinch
+//    smartmagnify <x> <y>              REAL two-finger double tap (NSEvent .smartMagnify) at canvas point x y
+//    fsmagnify <x> <y> <factor>        real pinch in the full-screen preview (screen points of its window)
+//    zoomstats                         pinch timing: events, handler ms avg / max, frame ms avg / max,
+//                                      sharp render after the end of the gesture
+//    sidebar                           folder sidebar state per mode + the canvas frame
+//    rawkey <keyCode> <chars> <ignoringMods> [cmd] [shift] [opt] [ctrl]   key press with explicit
+//                                      characters, e.g. a German-layout ⌘= (⇧⌘0 typing "="):
+//                                      `rawkey 29 = = cmd shift`
+//  (Gesture events are synthesized as CGEvents of type NSEventTypeGesture with the HID gesture
+//  fields set: zoom = magnify, zoom toggle = smart magnify — the same fields the trackpad driver sets.)
 //
 
 #if DEBUG
@@ -31,7 +47,8 @@ import Foundation
 
 enum ZoomDevScript {
     static let commands: Set<String> = ["zoom", "zoomtoggle", "zmouse", "pan", "magnify", "zscroll", "zdrag", "zspace",
-                                        "zoomwait", "zoombench", "zoomdump", "panels", "fullscreen", "winfull", "fullz", "zactivate", "zmaskdrag", "zmaskexp", "fskey"]
+                                        "zoomwait", "zoombench", "zoomdump", "panels", "fullscreen", "winfull", "fullz", "zactivate", "zmaskdrag", "zmaskexp", "fskey",
+                                        "pinch", "smartmagnify", "fsmagnify", "zoomstats", "sidebar", "rawkey"]
 
     static func run(_ command: String, _ arg: String, model: AppModel) async {
         let zoom = ZoomController.develop
@@ -144,6 +161,41 @@ enum ZoomDevScript {
                                             windowNumber: w.windowNumber, context: nil, characters: chars,
                                             charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) { NSApp.postEvent(e, atStart: false) }
             }
+        case "pinch":
+            if v.first == "end" { postGesture(.magnify, at: lastPinchPoint, magnification: 0, phase: 4, zoom: zoom, window: mainWindow(zoom)); return }
+            guard nums.count >= 3 else { print("DevScript pinch: x y factor [steps] [ms] [hold]"); return }
+            await pinch(at: CGPoint(x: nums[0], y: nums[1]), factor: nums[2], steps: nums.count > 3 ? Int(nums[3]) : 20,
+                        ms: nums.count > 4 ? nums[4] : 16, hold: v.contains("hold"), zoom: zoom, window: mainWindow(zoom))
+        case "fsmagnify":
+            guard nums.count >= 3, let w = FullScreenPreview.shared.window else { print("DevScript fsmagnify: not showing"); return }
+            await pinch(at: CGPoint(x: nums[0], y: nums[1]), factor: nums[2], steps: 20, ms: 16, hold: false,
+                        zoom: FullScreenPreview.shared.zoom, window: w)
+        case "smartmagnify":
+            guard nums.count >= 2 else { return }
+            postGesture(.smartMagnify, at: CGPoint(x: nums[0], y: nums[1]), magnification: 0, phase: 0, zoom: zoom, window: mainWindow(zoom))
+        case "zoomstats":
+            let st = zoom.stats
+            print(String(format: "DevScript zoomstats: events=%d handler avg %.3f ms max %.3f ms | frames=%d frame avg %.1f ms max %.1f ms | sharp after end %@ | level=%@ ratio=%.3f",
+                         st.events, st.events > 0 ? st.handlerMSTotal / Double(st.events) : 0, st.handlerMSMax,
+                         st.frames, st.frames > 0 ? st.frameMSTotal / Double(st.frames) : 0, st.frameMSMax,
+                         st.sharpAfterEndMS.map { String(format: "%.0f ms (%@)", $0, st.sharpRendered ? "region render" : "already sharp") } ?? "pending",
+                         CanvasViewport.label(zoom.level), zoom.viewport.pixelRatio))
+        case "sidebar":
+            let p = DevelopPanels.shared
+            print("DevScript sidebar: mode=\(model.mode) library=\(p.librarySidebarHidden ? "hidden" : "shown") develop=\(p.sidebarHidden ? "hidden" : "shown") "
+                  + "canvasFrame=\(zoom.canvasFrame)")
+        case "rawkey":
+            guard v.count >= 3, let code = UInt16(v[0]), let w = mainWindow(zoom) else { print("DevScript rawkey: <keyCode> <chars> <ignoringMods> [mods]"); return }
+            var flags: NSEvent.ModifierFlags = []
+            if v.contains("cmd") { flags.insert(.command) }
+            if v.contains("shift") { flags.insert(.shift) }
+            if v.contains("opt") { flags.insert(.option) }
+            if v.contains("ctrl") { flags.insert(.control) }
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: w.windowNumber, context: nil, characters: v[1], charactersIgnoringModifiers: v[2],
+                                            isARepeat: false, keyCode: code) { NSApp.postEvent(e, atStart: false) }
+            }
         case "winfull":
             NSApp.windows.first { $0.isVisible && !($0 is NSPanel) && $0 !== FullScreenPreview.shared.window }?.toggleFullScreen(nil)
         default: break
@@ -157,7 +209,8 @@ enum ZoomDevScript {
               + "center=(\(String(format: "%.3f, %.3f", vp.center.x, vp.center.y))) imageRect=\(vp.imageRect.integral) canvas=\(vp.canvasSize) "
               + "displayed=\(vp.displayedSize) scale=\(vp.displayScale) canvasFrame=\(zoom.canvasFrame) locked=\(zoom.isLocked) space=\(zoom.spaceHeld) "
               + "tile=\(t.map { "\($0.image.width)x\($0.image.height)@\($0.normalizedRect)" } ?? "none") "
-              + "lastRefine=\(String(format: "%.0f", zoom.lastRefineMS))ms refines=\(zoom.refineCount) mouse=\(zoom.mouseLocation.map { "\($0)" } ?? "-")")
+              + "lastRefine=\(String(format: "%.0f", zoom.lastRefineMS))ms refines=\(zoom.refineCount) mouse=\(zoom.mouseLocation.map { "\($0)" } ?? "-") "
+              + "window=\(zoom.window.map { "#\($0.windowNumber)" } ?? "nil")")
     }
 
     private static func mainWindow(_ zoom: ZoomController) -> NSWindow? {
@@ -186,6 +239,40 @@ enum ZoomDevScript {
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         guard let e = NSEvent(cgEvent: cg) else { return }
         print("DevScript zscroll: event window=\(e.window === window) loc=\(e.locationInWindow) dy=\(e.scrollingDeltaY) precise=\(e.hasPreciseScrollingDeltas)")
+        NSApp.postEvent(e, atStart: false)
+    }
+
+    private static var lastPinchPoint = CGPoint.zero
+
+    /// Began, `steps` changes multiplying the zoom by `factor` overall, ended — `ms` apart, like a trackpad.
+    private static func pinch(at p: CGPoint, factor: Double, steps: Int, ms: Double, hold: Bool, zoom: ZoomController, window: NSWindow?) async {
+        lastPinchPoint = p
+        let n = max(1, steps)
+        let m = pow(max(factor, 0.01), 1 / Double(n)) - 1
+        postGesture(.magnify, at: p, magnification: 0, phase: 1, zoom: zoom, window: window)
+        for _ in 0..<n {
+            try? await Task.sleep(for: .milliseconds(Int(ms)))
+            postGesture(.magnify, at: p, magnification: m, phase: 2, zoom: zoom, window: window)
+        }
+        try? await Task.sleep(for: .milliseconds(Int(ms)))
+        if !hold { postGesture(.magnify, at: p, magnification: 0, phase: 4, zoom: zoom, window: window) }
+        try? await Task.sleep(for: .milliseconds(30))
+    }
+
+    /// Posts a trackpad gesture event at canvas point `p` (CG gesture phase 1 began, 2 changed, 4 ended).
+    private static func postGesture(_ type: NSEvent.EventType, at p: CGPoint, magnification: Double, phase: Int64,
+                                    zoom: ZoomController, window: NSWindow?) {
+        guard let window, let cg = CGEvent(source: nil), let typeField = CGEventField(rawValue: 55),
+              let hidField = CGEventField(rawValue: 110), let zoomField = CGEventField(rawValue: 113),
+              let phaseField = CGEventField(rawValue: 132) else { return }
+        cg.setIntegerValueField(typeField, value: 29)                          // NSEventTypeGesture
+        cg.setIntegerValueField(hidField, value: type == .smartMagnify ? 22 : 8)   // HID zoom toggle / zoom
+        cg.setDoubleValueField(zoomField, value: magnification)
+        if type == .magnify { cg.setIntegerValueField(phaseField, value: phase) }
+        let screen = window.convertPoint(toScreen: windowPoint(p, zoom: zoom, window: window))
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        cg.location = CGPoint(x: screen.x, y: mainHeight - screen.y)
+        guard let e = NSEvent(cgEvent: cg), e.type == type else { print("DevScript: gesture event not created"); return }
         NSApp.postEvent(e, atStart: false)
     }
 

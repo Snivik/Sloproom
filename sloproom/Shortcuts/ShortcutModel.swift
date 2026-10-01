@@ -223,6 +223,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     // View
     case libraryMode, developMode, fullScreenPreview, exitFullScreen, toggleSidePanels, toggleAllPanels
     case zoomToggle, zoomIn, zoomOut, temporaryHand, keyboardShortcuts
+    case toggleSidebar, zoomFit
     // Library
     case thumbnailLarger, thumbnailSmaller, moveLeft, moveRight, moveUp, moveDown, openInDevelop,
          removePhotos, deleteFolder
@@ -266,6 +267,8 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .zoomToggle: return "Zoom Fit ↔ 1:1"
         case .zoomIn: return "Zoom In"
         case .zoomOut: return "Zoom Out"
+        case .zoomFit: return "Zoom to Fit"
+        case .toggleSidebar: return "Show / Hide Folders"
         case .temporaryHand: return "Hand Tool (hold)"
         case .keyboardShortcuts: return "Keyboard Shortcuts…"
         case .thumbnailLarger: return "Increase Thumbnail Size"
@@ -319,7 +322,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .pick, .unflag, .reject, .autoAdvance, .rating0, .rating1, .rating2, .rating3, .rating4, .rating5,
              .copySettings, .pasteSettings, .beforeAfter, .createVirtualCopy: return .photo
         case .libraryMode, .developMode, .fullScreenPreview, .exitFullScreen, .toggleSidePanels, .toggleAllPanels,
-             .zoomToggle, .zoomIn, .zoomOut, .temporaryHand, .keyboardShortcuts: return .view
+             .zoomToggle, .zoomIn, .zoomOut, .temporaryHand, .keyboardShortcuts, .toggleSidebar, .zoomFit: return .view
         case .thumbnailLarger, .thumbnailSmaller, .moveLeft, .moveRight, .moveUp, .moveDown, .openInDevelop,
              .removePhotos, .deleteFolder: return .library
         case .previousPhoto, .nextPhoto, .toggleCropTool, .rotateLeft, .rotateRight, .cancelWhiteBalance: return .develop
@@ -334,7 +337,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .thumbnailLarger, .thumbnailSmaller, .moveLeft, .moveRight, .moveUp, .moveDown, .openInDevelop, .removePhotos:
             return .library
         case .toggleSidePanels, .toggleAllPanels, .toggleCropTool, .rotateLeft, .rotateRight: return .develop
-        case .zoomToggle, .zoomIn, .zoomOut, .temporaryHand, .previousPhoto, .nextPhoto: return .viewer
+        case .zoomToggle, .zoomIn, .zoomOut, .zoomFit, .temporaryHand, .previousPhoto, .nextPhoto: return .viewer
         case .exitFullScreen: return .fullScreen
         case .cancelWhiteBalance: return .whiteBalance
         case .cropSwapAspect, .cropGridOverlay, .cropCommit, .cropCancel: return .crop
@@ -386,6 +389,8 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .zoomToggle: return KeyCombo("z")
         case .zoomIn, .thumbnailLarger: return KeyCombo("=", .command)
         case .zoomOut, .thumbnailSmaller: return KeyCombo("-", .command)
+        case .zoomFit: return KeyCombo("0", .command)
+        case .toggleSidebar: return KeyCombo("s", [.control, .command])   // macOS View > Show Sidebar
         case .temporaryHand: return KeyCombo("space")
         case .moveLeft, .previousPhoto: return KeyCombo("left")
         case .moveRight, .nextPhoto: return KeyCombo("right")
