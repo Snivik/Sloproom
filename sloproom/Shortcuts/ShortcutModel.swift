@@ -220,6 +220,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     case rating0, rating1, rating2, rating3, rating4, rating5
     case copySettings, pasteSettings, beforeAfter
     case createVirtualCopy
+    case bulkCrop, syncSettings, resetEdits, showInFinder   // photo actions (Actions/)
     // View
     case libraryMode, developMode, fullScreenPreview, exitFullScreen, toggleSidePanels, toggleAllPanels
     case zoomToggle, zoomIn, zoomOut, temporaryHand, keyboardShortcuts
@@ -258,6 +259,10 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .pasteSettings: return "Paste Settings"
         case .beforeAfter: return "Before / After"
         case .createVirtualCopy: return "Create Virtual Copy"
+        case .bulkCrop: return "Bulk Crop…"
+        case .syncSettings: return "Sync Settings…"
+        case .resetEdits: return "Reset Edits"
+        case .showInFinder: return "Show in Finder"
         case .libraryMode: return "Library"
         case .developMode: return "Develop"
         case .fullScreenPreview: return "Full Screen Preview"
@@ -320,7 +325,8 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .newFolder, .importPhotos, .importLightroomCatalog, .exportPhotos, .exportCatalog, .importCatalog: return .file
         case .undo, .redo, .selectAllPhotos: return .edit
         case .pick, .unflag, .reject, .autoAdvance, .rating0, .rating1, .rating2, .rating3, .rating4, .rating5,
-             .copySettings, .pasteSettings, .beforeAfter, .createVirtualCopy: return .photo
+             .copySettings, .pasteSettings, .beforeAfter, .createVirtualCopy,
+             .bulkCrop, .syncSettings, .resetEdits, .showInFinder: return .photo
         case .libraryMode, .developMode, .fullScreenPreview, .exitFullScreen, .toggleSidePanels, .toggleAllPanels,
              .zoomToggle, .zoomIn, .zoomOut, .temporaryHand, .keyboardShortcuts, .toggleSidebar, .zoomFit: return .view
         case .thumbnailLarger, .thumbnailSmaller, .moveLeft, .moveRight, .moveUp, .moveDown, .openInDevelop,
@@ -380,6 +386,10 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .pasteSettings: return KeyCombo("v", [.command, .shift])
         case .beforeAfter: return KeyCombo("\\")
         case .createVirtualCopy: return KeyCombo("'", .command)
+        case .bulkCrop: return nil
+        case .syncSettings: return KeyCombo("s", [.command, .shift])     // Lightroom: Sync Settings
+        case .resetEdits: return KeyCombo("r", [.command, .shift])       // Lightroom: Reset
+        case .showInFinder: return KeyCombo("r", .command)               // Lightroom / Finder: Show in Finder
         case .libraryMode: return KeyCombo("g")
         case .developMode: return KeyCombo("d")
         case .fullScreenPreview: return KeyCombo("f")

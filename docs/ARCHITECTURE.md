@@ -46,7 +46,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
 | `Shortcuts/*` | keyboard shortcut registry (`ShortcutModel`, `ShortcutStore`), dispatcher + menu items (`ShortcutKeys`), Settings > Keyboard, tooltip helpers (`SegmentHelp`), DevScript |
 | `CatalogTransfer/*` | Export Catalog / Import Catalog (engine `CatalogTransfer.swift`; controller, sheet + `CatalogTransferCommands`, DevScript) |
-| `VirtualCopies/*` | virtual copies: catalog API (`Catalog+VirtualCopies.swift`), preview seeding (`VirtualCopyPreviews`), actions / menus / badge / rename alert (`VirtualCopyActions`), drop verbs (`PhotoDropVerb`), DevScript `vc …` |
+| `VirtualCopies/*` | virtual copies: catalog API (`Catalog+VirtualCopies.swift`), preview seeding (`VirtualCopyPreviews`), actions / badge / rename alert (`VirtualCopyActions`), drop verbs (`PhotoDropVerb`), DevScript `vc …` |
+| `Actions/*` | photo actions primitive: registry (`PhotoActionSpec` UI-free + `PhotoActions`), every menu surface (`PhotoActionMenus`), bulk edits with one undo step (`BulkEditor`, engine `Catalog+BulkEdits`), Bulk Crop (`BulkCrop` math + sheet), Paste / Sync section checklist (`EditSections`, `SettingsSectionsSheet`), window UI (`PhotoActionUI`), DevScript `act …` |
 
 Conventions: new catalog API as `nonisolated extension Catalog` in the feature's own
 `Catalog+Feature.swift`; feature tables via `applyMigration(named:sql:)`; engine files (anything
@@ -164,8 +165,9 @@ virtual copies: `masterID`, `copyName`, `isVirtualCopy`, `displayTitle` ("IMG_12
   per-folder default crops.
 - UI (`VirtualCopyActions`): Photo > Create Virtual Copy (⌘', registry `createVirtualCopy`; copies of
   `actionTargetIDs` added to the shown folder, selected; in Develop the copy opens), Photo > Rename Virtual
-  Copy…, grid context menu (Create Virtual Copy, Rename…, Copy to Folder ▸ next to Add to / Move to Folder ▸,
-  New Folder with Virtual Copies), filmstrip context menu (`FilmstripPhotoMenu`), Develop inspector row
+  Copy…, grid / filmstrip context menus and Develop's actions menu (Create Virtual Copy, Rename…, Copy to
+  Folder ▸ next to Add to / Move to Folder ▸, New Folder with Virtual Copies — built by the photo actions
+  registry, `Actions/`), Develop inspector row
   (`VirtualCopyInfoRow`). Help texts: Add = same photo, edits shared; Move = out of this folder; Copy =
   independent virtual copy with its own edits.
 - Pending Develop edits are flushed before copying. Previews are SEEDED (`VirtualCopyPreviews.seed`):
@@ -277,9 +279,12 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
   photo of the old list, or the previous one if it was last. Source / filter / sort changes don't.
 
 Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder, Import Photos…,
-Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export…, Export Catalog…, Import Catalog…; Edit > Undo/Redo route to the develop session
-in Develop mode, otherwise to the responder chain; Edit > Select All Photos; Photo > Pick, Unflag, Reject, Auto Advance After Flagging,
-Set Rating (0–5), Copy / Paste Settings, Before / After, Create Virtual Copy, Rename Virtual Copy…; View > Library, Develop, Show / Hide Folders, Keyboard Shortcuts…; Library > Previews ▸ (build /
+Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export…, Export Catalog…, Import Catalog…; Edit > Undo/Redo
+(`BulkEditUndo.undo/redo(model:)`: Develop session steps and bulk-edit steps newest first, otherwise the responder chain);
+Edit > Select All Photos; Photo menu = the photo actions registry (`PhotoMenuBarItems`: Pick, Unflag, Reject, Auto Advance After Flagging,
+Set Rating (0–5), Copy Settings, Paste Settings, Choose Settings to Paste…, Sync Settings…, Bulk Crop…, Reset Edits, Before / After, Create
+Virtual Copy, Rename Virtual Copy…, Open in Develop, Show in Finder, New Folder with Photos / Virtual Copies, Remove from This Folder,
+Remove from Catalog…; single / multi actions enabled from the `exportTargetCount` focused value); View > Library, Develop, Show / Hide Folders, Keyboard Shortcuts…; Library > Previews ▸ (build /
 regenerate / discard for selection, build all, clean cache); Help > Keyboard Shortcuts…. Every item with a shortcut is a
 `ShortcutMenuButton` (keys: see the registry below). Menu items that act on the selection read
 `model.actionTargetIDs` when chosen (menu-bar Commands are not re-rendered on selection changes, so
@@ -339,10 +344,12 @@ View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a to
 |---|---|---|---|
 | New Folder (`newFolder`), Import Photos… (`importPhotos`), Export… (`exportPhotos`) | ⇧⌘N, ⇧⌘I, ⇧⌘E | Everywhere | menu (`SloproomCommands`, `ExportCommands`) |
 | Import Lightroom Catalog…, Export Catalog…, Import Catalog…, Auto Advance After Flagging, Keyboard Shortcuts… | none (assignable) | Everywhere | menu (`SloproomCommands`, `CatalogTransferSheet`, `FlagActions`, `KeyboardSettingsView`) |
-| Undo / Redo | ⌘Z / ⇧⌘Z | Everywhere | menu (Develop → session, else responder chain) |
+| Undo / Redo | ⌘Z / ⇧⌘Z | Everywhere | menu (`BulkEditUndo`: Develop session / bulk-edit steps newest first; Library: a bulk step on top of the window's UndoManager, else the responder chain) |
 | Pick / Unflag / Reject | P / U / X | Everywhere | menu (`SloproomCommands` → `FlagActions`) |
 | Rating None…★★★★★ (`rating0`–`rating5`) | 0–5 | Everywhere | menu |
-| Copy / Paste Settings, Before / After | ⇧⌘C / ⇧⌘V, `\` | Everywhere | menu |
+| Copy / Paste Settings, Before / After | ⇧⌘C / ⇧⌘V, `\` | Everywhere | menu (photo actions registry `PhotoMenuBarItems`; Before / After: `SloproomCommands`) |
+| Sync Settings… (`syncSettings`), Reset Edits (`resetEdits`), Show in Finder (`showInFinder`) | ⇧⌘S, ⇧⌘R, ⌘R (Lightroom's keys) | Everywhere | menu (photo actions registry, `PhotoMenuBarItems` → `PhotoActions.performFromMenu`) |
+| Bulk Crop… (`bulkCrop`) | none (assignable) | Everywhere | menu (photo actions registry) |
 | Create Virtual Copy (`createVirtualCopy`) | ⌘' | Everywhere (Library & Develop; ignored while the full-screen preview shows) | menu (`SloproomCommands` → `VirtualCopyActions.createFromMenu`) |
 | Library (`libraryMode`) | G | Everywhere | menu |
 | Develop (`developMode`) | D | Everywhere | menu + dispatcher handler (AppKit's Start Dictation takes plain D) — `LibraryKeyMonitor` |
@@ -384,7 +391,12 @@ pinch (free-form) / two-finger double tap (smart magnify: Fit ↔ 100 %) / ⌘- 
   rejected thumbnail out to grey (saturation + `contrast(0.45)` = 55 % mid-grey veil, image pixels
   only). Same in grid (`PhotoGridCell`) and filmstrip (`FilmstripView`, file names under thumbnails,
   focused = bright frame, other selected = light frame).
-- Photo drags (grid + filmstrip): `PhotoDrag.provider/preview` (`Library/Flags/PhotoDrag.swift`).
+- Photo drags (grid + filmstrip): `PhotoDrag.provider/preview` (`Library/Flags/PhotoDrag.swift`). Both drag sources
+  carry `.dragConfiguration(PhotoDrag.operations)` (copy + move within the app; SwiftUI's `onDrag` alone offers only
+  copy, `act stripdrag` / `vc dragmask` show the masks) and the provider also carries the file URL of the original under
+  the pointer, so dropping on the Finder / another app copies the original file (in-app drops read the plain-text
+  payload registered first). Develop's filmstrip drags exactly like the grid (`act stripdrag <i> plain|cmd|opt <folder>`
+  drops a real filmstrip drag payload through SwiftUI's drop destination).
 - In-app drag & drop: plain-text `SloproomDragPayload` (`sloproom-drag:photos:1,2` / `…folder:7`)
   in an `NSItemProvider` via `SloproomDrag.provider(_:)`; drop targets decode it with `SloproomDrag.load`.
 - Photos dropped on a folder row (`PhotoDropVerb`, Finder-like): plain = **Add** (same photo; proposal
@@ -393,6 +405,57 @@ pinch (free-form) / two-finger double tap (smart magnify: Fit ↔ 100 %) / ⌘- 
   capsule (`PhotoDropVerbBadge`); the row tooltip lists the modifiers. SwiftUI's `onDrag` source offers
   only `.copy`, yet all three proposals drop (checked with `vc droptest`, which drives SwiftUI's real
   `_PlatformDraggingDestinationView` with a fake `NSDraggingInfo`).
+
+## Photo actions (`Actions/`, harness `Tools/actions_check.swift`)
+
+One registry of everything that can be applied to photos; every surface is built from it.
+
+- `PhotoActionSpec` (UI-free): `PhotoActionID`, title (static `menuTitle` for the menu bar, `title(count:)`
+  elsewhere: "Pick 12 Photos"), SF symbol, help, **arity** (`.single` = exactly one, `.multiple` = one or
+  more, `.many` = two or more), modes (Library / Develop), optional `ShortcutAction` (keys always come from
+  the Shortcuts registry), menu group, folder submenu flag. `availability(count:mode:)` → `.hidden` /
+  `.disabled(reason)` ("Select a single photo", "Select two or more photos") / `.enabled`.
+- Registry (menu order): Open in Develop (single, Library), Show in Finder (single) | Create Virtual Copy,
+  Rename Virtual Copy… (single) | Pick / Unflag / Reject | Copy Settings (single), Paste Settings, Choose
+  Settings to Paste…, Sync Settings… (many), Bulk Crop…, Reset Edits (confirms if > 1) | Add to / Move to /
+  Copy to Folder ▸, New Folder with Photos, New Folder with Virtual Copies, Remove from This Folder | Export
+  JPEG… | Remove from Catalog… (confirms). Ported actions call the same code as before (FolderActions,
+  VirtualCopyActions, FlagActions, ExportController).
+- **Targets, one place**: `PhotoActionTargets.resolve` / `PhotoActions.targets(model:clicked:)` — Library:
+  the selection (list order) else the focused photo; a context menu on a cell outside the selection acts on
+  that cell (flags select it first, as before). Develop: the filmstrip selection if more than one photo is
+  selected (incl. the edited one), else the photo being edited; a filmstrip cell's menu acts on the
+  selection if the cell is part of a multi-selection, else on that cell. `primaryID` = focused photo (Sync
+  source).
+- `PhotoActions` (app half): `isVisible` (Move to / Remove from This Folder only while a folder is shown,
+  Rename only if a target is a virtual copy, folder submenus only with folders), `availability` (+ paste needs
+  copied settings), `tooltip`, `perform`, `performFolder`, `performFromMenu` (menu bar / keys: resolves
+  targets when chosen, beeps if not allowed).
+- Surfaces (`PhotoActionMenus`): `PhotoActionMenuItems(model:clicked:)` = grid AND filmstrip context menus
+  and Develop's toolbar "…" menu (`PhotoActionsToolbarMenu`, toolbar item "Photo Actions"; its item tooltips
+  are patched by `ToolbarMenuTooltips` because SwiftUI drops `.help` in toolbar menus). Actions whose arity
+  doesn't fit are DISABLED with the reason as tooltip, never hidden. `PhotoMenuBarItems` = the Photo menu
+  (static titles so `ShortcutMenuSync` can patch keys; enabled from the `exportTargetCount` focused value).
+- **Bulk edits** (`BulkEditor.apply(title, ids:, model:, transform:)`): only the photo open in Develop → through
+  the session (one session undo step). Otherwise: Develop edits flushed, `BulkEdit.apply` off-main in
+  transactions of 200 (`Catalog.saveEditSettings(_ edits:)`: one `.photosUpdated` per chunk, edit_version
+  bumped → previews regenerate lazily / eagerly as for any edit; nothing renders), `BulkProgress` HUD at the
+  bottom of the window for > 20 photos, the session adopts its photo's new settings, ONE step on the main
+  window's UndoManager (`BulkEditUndo`; before / after per id, NULL rows restored to NULL). 21,564 photos:
+  ≈ 1.2 s apply; 2,000: 41 ms apply / 3 ms undo (harness).
+- Undo routing (`BulkEditUndo.undo/redo(model:)`, Edit menu): Library — a bulk step on top of the window's
+  UndoManager, else the responder chain. Develop — newest first between the session's own steps and bulk
+  steps (a bulk step made in this session at depth d is newer than session steps ≤ d; one made before the
+  session opened is older than all of them); Redo replays in reverse. The inspector's ↶ / ↷ buttons stay
+  session-only.
+- Bulk Crop (`BulkCrop`, `BulkCropSheet`): presets from the catalog (+ Original, custom W:H), orientation
+  "Match each photo" (portrait photos get the portrait version: 4:5 → 5:4 for landscape) or "As written";
+  `CropMath.maxRect(aspect:)` in the frame of each photo's current turns / flip / straighten = centered,
+  largest crop inside the rotated content; sets `cropPresetID` + `aspectLocked` like the crop tool; replaces
+  existing crops; preview of the first 6 targets. Choices remembered (`actions.bulkCrop.*`).
+- Paste / Sync sections (`EditSection`: White Balance, Tone, Presence, Color Mixer, Effects, Masks, Crop & Rotate
+  — whole `EditSettings` section structs, `EditSettings.replacing(_:from:)`). Sync default: all but Crop & Rotate
+  (`actions.syncSections`); Paste default: the global adjustments (`actions.pasteSections`).
 
 ## EditSettings (`Develop/EditSettings.swift`)
 
@@ -521,7 +584,9 @@ sRGB primaries**, extent `(0,0,W,H)`):
   stages at ≤ 1600 px), a full-quality render follows 150 ms after the last change; one in flight, latest
   wins. Also `showBefore` (Photo > Before / After, `\`), `histogram`, `isPickingWhiteBalance`,
   `setWhiteBalance(from: .auto | .point(NormPoint))`, `copySettings()/pasteSettings()`
-  (Photo > Copy/Paste Settings ⇧⌘C/⇧⌘V; excludes geometry and masks; Library paste = all selected).
+  (Photo > Copy/Paste Settings ⇧⌘C/⇧⌘V, registry actions: copy = one photo, all settings; paste = the sections of
+  `DevelopClipboard.pasteSections` (default: global adjustments, no geometry / masks; "Choose Settings to Paste…" changes
+  them); several targets = a bulk edit with one undo step, see Photo actions).
 - `DevelopSlider` gained `track: .plain | .gradient([Color])` (before `onEditingChanged`), an editable value
   field, ⌥-drag fine adjust, double-click title/track to reset. Existing call sites are unchanged.
 - Harness: `Tools/develop_check.swift` (renders every control, invariants, scale consistency, timing).
@@ -559,6 +624,8 @@ Created by AppModel for the photo in Develop (`model.developSession`).
 - `activeTool: DevelopTool (.none/.crop/.mask)` — `.crop` re-renders WITHOUT crop; `selectedMaskID: UUID?`
 - `viewPixelSize` (set by the canvas), `requestRender()`
 - `undo()`, `redo()`, `canUndo`, `canRedo`, `commitUndoGroup()` (call at drag end), `resetAll()`
+- `undoDepth` (steps recorded and not undone, incl. ones dropped beyond 200) and `adoptExternalSettings(_:)` (shows
+  settings a bulk edit / its undo already wrote: no undo step, no save) — used by `Actions/BulkEditor.swift`
 - `saveNow()`, `close()` (AppModel calls on photo switch / leaving Develop)
 - `canvasGeometry(imageRect:) -> CanvasGeometry`
 
@@ -750,6 +817,6 @@ edited elsewhere are dropped after `.photosUpdated`. `purgeAll()` resets all in-
   off-main when chosen/restored; `export.quality` default 85). `ExportSheet`: destination row +
   Choose… (NSOpenPanel), quality slider, Export / Cancel; progress "Exporting 3 of 12…"; summary +
   Show in Finder. Entry points: File > Export… (⇧⌘E, `ExportCommands`, disabled via the
-  `exportTargetCount` focused scene value, targets read on invocation), grid context menu
-  `ExportMenuButton` ("Export N Photos…"), `.exportSheet(model:)` on the main window. In Develop the
+  `exportTargetCount` focused scene value, targets read on invocation), context menus / Develop actions menu
+  (photo actions registry `exportJPEG`, "Export N Photos…"), `.exportSheet(model:)` on the main window. In Develop the
   current photo is exported with the session's live settings (its catalog save is async).

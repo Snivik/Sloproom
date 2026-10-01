@@ -4,7 +4,7 @@
 //
 //  Entry points of the Export sheet:
 //    - File > Export… (⇧⌘E by default, ShortcutAction.exportPhotos): `ExportCommands(model:)` in the App scene's `.commands`.
-//    - grid context menu: `ExportMenuButton(ids:model:)` ("Export N Photos…").
+//    - context menus: the photo actions registry's `exportJPEG` ("Export N Photos…", Actions/).
 //    - the sheet itself: `.exportSheet(model:)` on the main window.
 //  Targets are `model.actionTargetIDs` read when the item is chosen (Library selection, Develop's
 //  current photo). The menu item is disabled through a focused scene value that the window
@@ -27,19 +27,6 @@ struct ExportCommands: Commands {
             ShortcutMenuButton(.exportPhotos) { ExportController.shared.present(ids: model.actionTargetIDs, model: model) }
                 .disabled(targetCount == 0)
         }
-    }
-}
-
-/// "Export N Photos…" for context menus.
-struct ExportMenuButton: View {
-    let ids: [Int64]
-    let model: AppModel
-
-    var body: some View {
-        Button(ids.count == 1 ? "Export 1 Photo…" : "Export \(ids.count) Photos…") {
-            ExportController.shared.present(ids: ids, model: model)
-        }
-        .disabled(ids.isEmpty)
     }
 }
 

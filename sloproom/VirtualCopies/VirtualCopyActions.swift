@@ -4,7 +4,7 @@
 //
 //  Virtual copies in the UI (engine: Catalog+VirtualCopies.swift):
 //  - Create Virtual Copy (Photo menu, ⌘' by default = registry action `createVirtualCopy`, grid +
-//    filmstrip context menus): one copy per target, added to the folder being shown (like
+//    filmstrip context menus — menus come from the photo actions registry, Actions/): one copy per target, added to the folder being shown (like
 //    Lightroom), then selected; in Develop the (first) copy opens so it can be re-cropped at once.
 //  - Copy to Folder ▸ / New Folder with Virtual Copies: copies created INSIDE the chosen / new
 //    folder (the owner's "Instagram Stories" workflow); the grid keeps its selection.
@@ -111,78 +111,9 @@ enum VirtualCopyActions {
 }
 
 // MARK: - Menus
-
-/// "Create Virtual Copy" (or "Create N Virtual Copies") for context menus.
-struct CreateVirtualCopyMenuItem: View {
-    let ids: [Int64]
-    let model: AppModel
-
-    var body: some View {
-        Button(ids.count > 1 ? "Create \(ids.count) Virtual Copies" : "Create Virtual Copy") {
-            VirtualCopyActions.create(ids, model: model)
-        }
-        .help(ShortcutStore.shared.help("A new version of the photo with its own crop and edits; the file is not duplicated", .createVirtualCopy))
-    }
-}
-
-/// "Copy to Folder ▸" (FolderMenuTree), to put next to Add to / Move to Folder.
-struct CopyToFolderMenu: View {
-    let ids: [Int64]
-    let model: AppModel
-
-    var body: some View {
-        Menu("Copy to Folder") {
-            FolderMenuTree(nodes: model.folderTree) { VirtualCopyActions.copy(ids, to: $0, model: model) }
-        }
-        .help(VirtualCopyActions.copyHelp)
-    }
-}
-
-/// "New Folder with Virtual Copies" / "Rename Virtual Copy…".
-struct VirtualCopyFolderMenuItems: View {
-    let ids: [Int64]
-    let model: AppModel
-
-    var body: some View {
-        Button("New Folder with Virtual Cop\(ids.count == 1 ? "y" : "ies")") {
-            VirtualCopyActions.newFolder(with: ids, model: model)
-        }
-        .help(VirtualCopyActions.newFolderWithCopiesHelp)
-    }
-}
-
-struct RenameVirtualCopyMenuItem: View {
-    let ids: [Int64]
-    let model: AppModel
-
-    var body: some View {
-        if ids.count == 1, model.photo(id: ids[0])?.isVirtualCopy == true {
-            Button("Rename Virtual Copy…") { VirtualCopyActions.requestRename(ids, model: model) }
-                .help("Name this copy (e.g. “Story”); shown in titles and export file names")
-        }
-    }
-}
-
-/// Filmstrip context menu (Develop): virtual copies + folders.
-struct FilmstripPhotoMenu: View {
-    let photo: Photo
-    let model: AppModel
-
-    var body: some View {
-        let ids = model.selection.contains(photo.id) ? model.orderedSelection : [photo.id]
-        CreateVirtualCopyMenuItem(ids: ids, model: model)
-        RenameVirtualCopyMenuItem(ids: ids, model: model)
-        Divider()
-        if !model.folderTree.isEmpty {
-            Menu("Add to Folder") {
-                FolderMenuTree(nodes: model.folderTree) { FolderActions.addPhotos(ids, to: $0, move: false, model: model) }
-            }
-            .help(VirtualCopyActions.addHelp)
-            CopyToFolderMenu(ids: ids, model: model)
-        }
-        VirtualCopyFolderMenuItems(ids: ids, model: model)
-    }
-}
+// Context menus (grid, filmstrip, Develop actions menu) and the Photo menu are built from the
+// photo actions registry (Actions/PhotoActionSpec.swift + PhotoActions.swift), which calls the
+// functions above.
 
 // MARK: - Rename alert
 

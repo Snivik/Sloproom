@@ -70,11 +70,12 @@ struct LibraryGridView: View {
                                 isGridFocused = true
                             })
                             .onDrag { PhotoDrag.provider(for: photo, model: model, selectUnselected: true) } preview: { PhotoDrag.preview(photo, model: model) }
-                            .contextMenu { cellMenu(photo) }
+                            .contextMenu { PhotoActionMenuItems(model: model, clicked: photo.id) }   // Actions/ registry
                     }
                 }
                 .padding(padding)
             }
+            .dragConfiguration(PhotoDrag.operations)
             .focusable()
             .focused($isGridFocused)
             .focusEffectDisabled()
@@ -148,55 +149,6 @@ struct LibraryGridView: View {
         } else {
             keys.pendingCatalogRemoval = ids
         }
-    }
-
-    /// Context-menu targets: the selection if the clicked photo is part of it, else that photo.
-    private func targets(_ photo: Photo) -> [Int64] {
-        model.selection.contains(photo.id) ? model.actionTargetIDs : [photo.id]
-    }
-
-    @ViewBuilder
-    private func cellMenu(_ photo: Photo) -> some View {
-        let ids = targets(photo)
-        let shown = model.shownFolderID
-        Button("Open in Develop") { model.openInDevelop(photo.id) }
-        CreateVirtualCopyMenuItem(ids: ids, model: model)
-        RenameVirtualCopyMenuItem(ids: ids, model: model)
-        Divider()
-        Button("Pick") { flag(photo, .pick) }
-        Button("Unflag") { flag(photo, .none) }
-        Button("Reject") { flag(photo, .reject) }
-        Divider()
-        if !model.folderTree.isEmpty {
-            Menu("Add to Folder") {
-                FolderMenuTree(nodes: model.folderTree) { FolderActions.addPhotos(ids, to: $0, move: false, model: model) }
-            }
-            .help(VirtualCopyActions.addHelp)
-            if shown != nil {
-                Menu("Move to Folder") {
-                    FolderMenuTree(nodes: model.folderTree, disabledID: shown) { FolderActions.addPhotos(ids, to: $0, move: true, model: model) }
-                }
-                .help(VirtualCopyActions.moveHelp)
-            }
-            CopyToFolderMenu(ids: ids, model: model)
-        }
-        Button("New Folder with \(ids.count == 1 ? "Photo" : "\(ids.count) Photos")") {
-            FolderActions.newFolder(parentID: nil, photoIDs: ids, model: model)
-        }
-        .help("Creates a folder holding these photos (the same photos, edits shared)")
-        VirtualCopyFolderMenuItems(ids: ids, model: model)
-        if shown != nil {
-            Button("Remove from This Folder") { FolderActions.removeFromShownFolder(ids, model: model) }
-        }
-        Divider()
-        ExportMenuButton(ids: ids, model: model)
-        Divider()
-        Button("Remove from Catalog…") { keys.pendingCatalogRemoval = ids }
-    }
-
-    private func flag(_ photo: Photo, _ flag: Flag) {
-        if !model.selection.contains(photo.id) { model.click(photoID: photo.id, command: false, shift: false) }
-        model.setFlag(flag)
     }
 
     private var removalTitle: String {

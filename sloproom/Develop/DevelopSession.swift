@@ -40,7 +40,7 @@ final class DevelopSession {
             guard settings != oldValue else { return }
             if showBefore { showBefore = false }
             recordUndo(oldValue)
-            scheduleSave()
+            if !isAdoptingExternalSettings { scheduleSave() }
             // Crop tool: the canvas shows the uncropped frame, so crop-only changes need no render.
             if !(activeTool == .crop && settings.rendersSameUncroppedFrame(as: oldValue)) { requestRender() }
         }
@@ -101,6 +101,11 @@ final class DevelopSession {
     private var isApplyingUndo = false
     private var undoGroupOpen = false
     private var undoGroupTask: Task<Void, Never>?
+    /// Undo steps recorded and not undone, counting steps dropped beyond the 200 kept (bulk
+    /// actions use it to order their own undo steps against the session's: Actions/BulkEditor.swift).
+    var undoDepth: Int { undoStack.count + droppedUndoSteps }
+    private var droppedUndoSteps = 0
+    private var isAdoptingExternalSettings = false
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
@@ -360,7 +365,7 @@ final class DevelopSession {
         guard !isApplyingUndo else { return }
         if !undoGroupOpen {
             undoStack.append(old)
-            if undoStack.count > 200 { undoStack.removeFirst() }
+            if undoStack.count > 200 { undoStack.removeFirst(); droppedUndoSteps += 1 }
             redoStack.removeAll()
             undoGroupOpen = true
         }
@@ -394,6 +399,20 @@ final class DevelopSession {
         isApplyingUndo = true
         settings = next
         isApplyingUndo = false
+    }
+
+    /// Bulk actions (Actions/BulkEditor.swift): shows settings that a bulk edit or its undo / redo
+    /// already wrote to the catalog. No undo step of its own (the bulk step covers it), no save.
+    func adoptExternalSettings(_ new: EditSettings) {
+        guard new != settings else { return }
+        commitUndoGroup()
+        isApplyingUndo = true
+        isAdoptingExternalSettings = true
+        settings = new
+        isAdoptingExternalSettings = false
+        isApplyingUndo = false
+        photo.editSettingsJSON = new.isEmpty ? nil : new.jsonString()
+        photo.editVersion += 1
     }
 
     /// Resets every adjustment (undoable).

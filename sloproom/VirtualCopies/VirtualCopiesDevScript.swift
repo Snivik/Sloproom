@@ -110,11 +110,12 @@ enum VirtualCopiesDevScript {
 /// Drives the real AppKit drop destination of a sidebar folder row (SwiftUI's hosting view) with a
 /// fake `NSDraggingInfo`: synthetic mouse drags never drop, so this is how drop handling is tested.
 enum DropTest {
-    @MainActor static func run(modifier: String, folderName: String, model: AppModel) async {
+    /// `explicitIDs`: the dragged ids (e.g. a filmstrip drag payload, `act stripdrag`); default the action targets.
+    @MainActor static func run(modifier: String, folderName: String, model: AppModel, ids explicitIDs: [Int64]? = nil) async {
         guard let window = ShortcutDispatcher.shared.mainWindow,
               let folder = model.folders.first(where: { $0.name == folderName }),
               let table = findOutline(window.contentView) else { print("DevScript vc droptest: no window / folder / sidebar"); return }
-        let ids = model.actionTargetIDs
+        let ids = explicitIDs ?? model.actionTargetIDs
         guard !ids.isEmpty else { print("DevScript vc droptest: nothing selected"); return }
         let payload = SloproomDragPayload.photos(ids)
         _ = SloproomDrag.provider(payload)   // records SloproomDrag.current like a real drag start

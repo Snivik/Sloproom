@@ -121,6 +121,17 @@ Snapshots must also be written inside the container. View them with the Read too
   `vc previews <id>` (preview files on disk), `vc dropverb`, `vc sourcemask` (drag source operation masks),
   `vc droptest plain|cmd|opt <folder>` (drops the targets on a sidebar folder through SwiftUI's real drop destination with a
   fake `NSDraggingInfo` — synthetic mouse drags never drop), `vc dragmask` (logs the masks of the next real drag).
+  Photo actions (`Actions/ActionsDevScript.swift`): `act dump` (targets + every action's title / availability, undo
+  state), `act menu <i>` (context-menu entries for a right-click on photo i), `act run <action id> [folder]`, `act crop
+  <original|preset name|W:H> [match|written]`, `act sheet bulkcrop|sync|paste`, `act sheetset aspect …|orient match|written`,
+  `act sheetapply [sections]`, `act sheetclose`, `act confirm|cancel` (Reset / Remove confirmation), `act copy`, `act undo|redo`
+  (the Edit menu's routing), `act wait` (bulk work finished), `act crops` (crop rect / pixel aspect / preset per photo),
+  `act rclick x y <png>` (a REAL context menu: synthesized right-click, menu + window captured together, items with
+  enabled state / tooltip printed, menu closed), `act toolbarmenu <png>` (Develop's Photo Actions menu), `act snapall <png>`
+  (all app windows incl. sheets / dialogs), `act stripdrag <i> plain|cmd|opt <folder>` (the filmstrip cell's real drag
+  provider → payload dropped through SwiftUI's drop destination, like `vc droptest`), e.g.
+  `source Vineyards; mode develop; sclick 0; sclick 2 shift; act stripdrag 1 cmd <folder>; scount <folder>`.
+  The sheets remember their choices in the app's UserDefaults (`actions.syncSections`, `actions.pasteSections`, `actions.bulkCrop.*`).
   Shortcut rebinding / brush size / thumbnail size write the app's (shared!) UserDefaults: `shortcut resetall` and
   restore `library.cellSize` when you are done.
   Synthesized keys are delivered to the main window, but menu key equivalents only match while the app
@@ -164,6 +175,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 | `shortcuts_check` | `HARNESS_NO_DEFAULT=1`, `sloproom/Shortcuts/ShortcutModel.swift sloproom/Shortcuts/ShortcutStore.swift` | – (defaults, overrides persist, conflicts per scope, resolution, reset, formatting; own UserDefaults suite) |
 | `vcopies_check` | `sloproom/VirtualCopies/{Catalog+VirtualCopies,VirtualCopyPreviews}.swift sloproom/Import/Catalog+Import.swift sloproom/LightroomImport/{RootAccess,LightroomCatalogReader,LightroomImportPlan,Catalog+LightroomImport}.swift sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[realistic catalog dir to COPY] [sample.jpg] [out-dir]` (defaults: `…/Data/tmp/vcopies/pristine`, `…/Data/tmp/folders/photos/L1090230.JPG`; schema v2 migration of a fresh v1 + the realistic copy, copies, sorting, import dedupe, relink, removal, preview seeding, export names) |
+| `actions_check` | `sloproom/Actions/{PhotoActionSpec,EditSections,BulkCrop,Catalog+BulkEdits}.swift sloproom/Shortcuts/ShortcutModel.swift sloproom/Develop/Crop/{CropMath,Catalog+CropPresets}.swift` | `[out-dir]` (registry arity / modes / enablement / shortcut titles + no default-key conflicts, target resolution, Bulk Crop math for every preset × orientation × portrait / landscape / square / rotated / straightened / flipped / EXIF-rotated photo, Paste / Sync section masking, bulk apply + one-step undo / redo on a temp catalog, 2,000-photo timing) |
 
 ## ax_help_audit.swift (tooltips / accessibility labels)
 

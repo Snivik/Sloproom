@@ -29,6 +29,7 @@ struct MainWindowView: View {
         .exportSheet(model: model)
         .catalogTransferSheet(model: model)
         .virtualCopySupport(model: model)   // Rename Virtual Copy alert (VirtualCopies/)
+        .photoActionSupport(model: model)   // bulk sheets, confirmations, progress (Actions/)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("Mode", selection: $model.mode) {
@@ -48,6 +49,9 @@ struct MainWindowView: View {
                     .pickerStyle(.menu)
                     .help("Show filmstrip photos by flag")
                 }
+                ToolbarItem {
+                    PhotoActionsToolbarMenu(model: model)   // Actions/: every photo action in Develop
+                }
             }
             ToolbarItem {
                 PreviewActivityView()
@@ -63,6 +67,7 @@ struct MainWindowView: View {
             "com.apple.SwiftUI.navigationSplitView.toggleSidebar": store.help("Show / Hide Folders", .toggleSidebar),
             "Mode": "Library / Develop",
             "Flag Filter": "Show filmstrip photos by flag",
+            "Photo Actions": PhotoActionsToolbarMenu.help(model),
             "Import": store.help("Import Photos…", .importPhotos),
         ])
         .sheet(item: $model.presentedSheet) { kind in

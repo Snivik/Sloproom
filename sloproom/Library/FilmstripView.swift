@@ -8,7 +8,9 @@
 //  other selected photos a lighter one; P / U / X / ratings act on the whole selection
 //  (`AppModel.actionTargetIDs`). Photos drag onto sidebar folders like grid cells (a selected
 //  photo drags the whole selection, ⌘ = move, ⌥ = virtual copies). Arrow keys: DevelopCanvasView
-//  (← / →). Context menu: virtual copies + folders (`FilmstripPhotoMenu`).
+//  (← / →). Context menu: the photo actions registry (`PhotoActionMenuItems`, Actions/): on a
+//  cell of a multi-selection it acts on the selection, else on that cell. The drag source offers
+//  copy AND move (`PhotoDrag.operations`) so ⌘-drag (move) isn't masked out by AppKit.
 //
 //  Clicks are an `onTapGesture` next to `.onDrag`: unlike a List row (where `.onDrag`
 //  swallowed clicks in the sidebar), a plain view keeps both.
@@ -38,12 +40,13 @@ struct FilmstripView: View {
                                 model.click(photoID: photo.id, command: flags.contains(.command), shift: flags.contains(.shift))
                             }
                             .onDrag { PhotoDrag.provider(for: photo, model: model, selectUnselected: false) } preview: { PhotoDrag.preview(photo, model: model) }
-                            .contextMenu { FilmstripPhotoMenu(photo: photo, model: model) }
+                            .contextMenu { PhotoActionMenuItems(model: model, clicked: photo.id) }
                     }
                 }
                 .padding(.horizontal, 6)
             }
             .frame(height: Self.height)
+            .dragConfiguration(PhotoDrag.operations)
             .background(.bar)
             .onAppear { if let id = model.focusedPhotoID { proxy.scrollTo(id, anchor: .center) } }
             // Minimal scroll (no anchor): clicking a visible photo never moves the strip under the
