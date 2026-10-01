@@ -161,9 +161,40 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `zoom_check` | `sloproom/Develop/Zoom/RegionRenderer.swift` | `[dng]` (viewport math incl. free pinch levels, steps from them, pinch anchor held over 20 steps; region render == full render, 1:1 timings) |
 | `catalog_transfer_check` | `sloproom/CatalogTransfer/CatalogTransfer.swift sloproom/LightroomImport/RootAccess.swift` | `[catalog-dir to COPY] [out-dir]` (default: the realistic catalog copy `…/Data/tmp/catalog/pristine`, `/private/tmp/claude-501/catalog-out/run`) |
 | `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
+| `lrmatch_check` | – | `[dng] [tuning-dir] [label] [sliders] [nocrop]` or `fit <spec> [evals]` (sliders vs Lightroom exports, see above) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 | `shortcuts_check` | `HARNESS_NO_DEFAULT=1`, `sloproom/Shortcuts/ShortcutModel.swift sloproom/Shortcuts/ShortcutStore.swift` | – (defaults, overrides persist, conflicts per scope, resolution, reset, formatting; own UserDefaults suite) |
 | `vcopies_check` | `sloproom/VirtualCopies/{Catalog+VirtualCopies,VirtualCopyPreviews}.swift sloproom/Import/Catalog+Import.swift sloproom/LightroomImport/{RootAccess,LightroomCatalogReader,LightroomImportPlan,Catalog+LightroomImport}.swift sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[realistic catalog dir to COPY] [sample.jpg] [out-dir]` (defaults: `…/Data/tmp/vcopies/pristine`, `…/Data/tmp/folders/photos/L1090230.JPG`; schema v2 migration of a fresh v1 + the realistic copy, copies, sorting, import dedupe, relink, removal, preview seeding, export names) |
+
+## lrmatch_check.swift (Develop sliders vs Lightroom)
+
+Calibrates the sliders against real Lightroom Classic exports of one RAW (one slider changed per
+folder). References are downscaled copies made ONCE with `sips` from the owner's exports in
+`~/Pictures/Lightroom Tuning/<Slider>/L1100118_<value>.jpg` (read-only; never re-read the 40 MB originals):
+
+```sh
+T=~/Library/Containers/dev.snivik.sloproom/Data/tmp/tuning
+sips -Z 1600 -s formatOptions 90 <export> --out $T/ref/<Slider>/<value>.jpg          # whole image
+sips -c 1067 1600 -s formatOptions 92 <export> --out $T/ref100/<Slider>/<value>.jpg  # 1:1 center crop
+sips -c 1067 1600 --cropOffset 1177 2615 -s formatOptions 92 <export> --out $T/refhl/Highlights/<value>.jpg  # 1:1 bright metal
+Tools/harness.sh /private/tmp/claude-501/tuning-out/lrmatch_check Tools/lrmatch_check.swift
+/private/tmp/claude-501/tuning-out/lrmatch_check [dng] [tuning-dir] [label] [slider,slider…] [nocrop]
+/private/tmp/claude-501/tuning-out/lrmatch_check fit <spec> [max-evals]      # Nelder–Mead over model constants
+TONE="hn.slope=0.4,cl.pos=1.2" /private/tmp/claude-501/tuning-out/lrmatch_check …   # try constants without rebuilding
+```
+
+- Every `ref/<Slider>` folder present is calibrated (folder name → EditSettings field: Exposure, Contrast,
+  Highlights, Shadows, Whites, Blacks, Texture, Clarity, Dehaze, Vibrance, Saturation).
+- Renders the DNG through the real `RenderPipeline` (1600 px whole image; full-resolution render cropped
+  to the same 1:1 windows, aligned automatically), writes `out/<label>/ours…/<Slider>/<value>.jpg`,
+  side-by-side montages `out/<label>/montage…/<Slider>.jpg` (LR left, ours right) and a ±50 ladder
+  `out/<label>/ladder/<Slider>.jpg`. LOOK at the montages.
+- Metrics compare the slider's EFFECT (ours(v) − ours(0) vs LR(v) − LR(0), CIELAB): per LR-0 L* zone
+  mean ΔL*/ΔC*, `zoneL`/`zoneC` (RMS over zones), `eff%` (per-pixel effect error / LR effect, 4×4 boxes),
+  band-pass energy ratios (fine/medium/coarse) and dark-channel shift; plus the 0-vs-0 baseline per zone.
+  `CURVES=1` prints transfer tables (L*(0) bin → mean L*(v), chroma ratio). Summary in `out/<label>/metrics.tsv`.
+- Fit specs (`fitSpecs` in the file) name the `AdjustmentOps.ToneModel` / `PresenceModel` constants they
+  optimize; paste the printed values into those structs.
 
 ## ax_help_audit.swift (tooltips / accessibility labels)
 

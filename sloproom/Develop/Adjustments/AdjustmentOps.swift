@@ -87,55 +87,118 @@ nonisolated enum AdjustmentOps {
         var isIdentity: Bool { self == ToneParams() }
     }
 
-    /// Radius of the smooth luminance base used by highlights/shadows.
-    static let toneBaseRadius: CGFloat = 0.02
+    /// Constants of the tone model, calibrated against Lightroom Classic exports
+    /// (Tools/lrmatch_check.swift). Highlights / Shadows are exposure changes (EV) driven by the
+    /// edge-aware base's log2 luminance `lb`: at ±100 a pixel gets
+    /// ±min(slope × softPos(lb − pivot, knee), cap) EV (shadows: softPos(pivot − lb, knee)), i.e. a
+    /// power-law compression (−) / expansion (+) of the base around the pivot, applied as a
+    /// luminance ratio so local detail and hue are kept. Brighter bases move more for Highlights
+    /// (so headroom above white is pulled into view with its detail) and the brightest point stays
+    /// the brightest in its neighbourhood.
+    nonisolated struct ToneModel: Sendable {
+        /// (slope EV per stop, pivot log2 Y, knee width in stops, cap EV)
+        var highlightsNeg = SIMD4<Double>(0.451, -2.72, 0.94, 1.50)
+        var highlightsPos = SIMD4<Double>(0.390, -2.64, 1.23, 1.36)
+        var shadowsNeg = SIMD4<Double>(0.723, -2.46, 0.71, 1.56)
+        var shadowsPos = SIMD4<Double>(0.701, -2.42, 0.67, 2.34)
+        /// Share of the smooth base (vs the pixel itself) driving highlights / shadows.
+        var baseMix = 1.0
+        /// Edge-aware base: radius (fraction of the long side) and guided-filter eps (P²).
+        var baseRadius = 0.025
+        var baseEps = 0.021
+        /// Share of the local detail (pixel − base, in P) whose amplitude Highlights / Shadows keep
+        /// (0 = scaled with the region like a ratio, 1 = kept as is).
+        var highlightsDetailKeep = 1.3
+        var shadowsDetailKeep = 0.0
+        /// Contrast exponent: P is raised to 2^(contrastK × c) around the pivot.
+        var contrastK = 0.6
+        var whitesK = 0.35
+        var blacksK = 0.07
+        /// Deepest shadows (P range) where lifting adds neutral light instead of scaling color.
+        var liftNeutral = SIMD2<Double>(0.015, 0.1)
+
+        static let lightroom = ToneModel()
+        /// The model in use. Only calibration harnesses change it.
+        nonisolated(unsafe) static var current = ToneModel.lightroom
+    }
 
     static func tone(_ image: CIImage, _ p: ToneParams, context: RenderContext) -> CIImage {
         guard !p.isIdentity else { return image }
         let local = p.highlights != 0 || p.shadows != 0
+        let m = ToneModel.current
         var base = image
         if local {
             let luma = perceptualLuma(image)
-            base = edgeAwareBase(luma, guide: luma, radiusFraction: toneBaseRadius, eps: 0.01, context: context)
+            base = edgeAwareBase(luma, guide: luma, radiusFraction: m.baseRadius, eps: m.baseEps, context: context)
         }
         let n = { (v: Double) in (v / 100).clamped(to: -1...1) }
+        func v4(_ s: SIMD4<Double>) -> CIVector { DevelopKernels.vector(s.x, s.y, s.z, s.w) }
         return DevelopKernels.apply(DevelopKernels.tone, image, [
             base,
             DevelopKernels.vector(n(p.contrast), n(p.highlights), n(p.shadows), n(p.whites)),
-            DevelopKernels.vector(n(p.blacks), local ? 1 : 0),
+            DevelopKernels.vector(n(p.blacks), local ? 1 : 0, m.liftNeutral.x, m.liftNeutral.y),
+            v4(m.highlightsNeg), v4(m.highlightsPos), v4(m.shadowsNeg), v4(m.shadowsPos),
+            DevelopKernels.vector(m.baseMix, m.contrastK, m.whitesK, m.blacksK),
+            DevelopKernels.vector(m.highlightsDetailKeep, m.shadowsDetailKeep),
         ])
     }
 
     // MARK: - Presence
 
-    /// Texture (fine detail, band-pass) and clarity (midtone local contrast, edge-aware), -100...100.
+    /// Constants of Texture / Clarity / Dehaze, calibrated against Lightroom Classic exports
+    /// (Tools/lrmatch_check.swift). Radii are fractions of the image's long side.
+    nonisolated struct PresenceModel: Sendable {
+        /// Texture: unsharp-mask radius and amount at +100 / −100.
+        var textureRadius = 0.0010
+        var texturePos = 0.246, textureNeg = 0.199
+        /// Clarity: edge-aware base radius / eps (P²) and amount at +100 / −100.
+        var clarityRadius = 0.0052, clarityEps = 0.042
+        var clarityPos = 1.17, clarityNeg = 0.594
+        /// Dehaze dark-channel base radius.
+        var dehazeRadius = 0.015
+        /// Dehaze > 0: (strength ω, airlight A in P, minimum transmission, dark-channel exponent).
+        var dehazePlus = SIMD4<Double>(0.62, 0.966, 0.42, 0.83)
+        /// Dehaze < 0: (veil density, extra density × dark channel, veil level in P, desaturation).
+        var dehazeMinus = SIMD4<Double>(0.227, 1.061, 1.098, 0.0)
+
+        static let lightroom = PresenceModel()
+        /// The model in use. Only calibration harnesses change it.
+        nonisolated(unsafe) static var current = PresenceModel.lightroom
+    }
+
+    /// Texture (fine/medium detail, unsharp mask) and clarity (midtone local contrast around a large
+    /// edge-aware base), -100...100.
     static func detail(_ image: CIImage, texture: Double, clarity: Double, context: RenderContext) -> CIImage {
         guard texture != 0 || clarity != 0 else { return image }
+        let m = PresenceModel.current
         let long = max(image.extent.width, image.extent.height)
         let luma = perceptualLuma(image)
-        var fine = luma, coarse = luma, base = luma
+        var texBlur = luma, base = luma
         if texture != 0 {
-            fine = blur(luma, sigma: 0.00012 * long)
-            coarse = blur(luma, sigma: 0.0007 * long)
+            texBlur = blur(luma, sigma: CGFloat(m.textureRadius) * long)
         }
         if clarity != 0 {
-            base = edgeAwareBase(luma, guide: luma, radiusFraction: 0.008, eps: 0.003, context: context)
+            base = edgeAwareBase(luma, guide: luma, radiusFraction: CGFloat(m.clarityRadius), eps: m.clarityEps, context: context)
         }
         return DevelopKernels.apply(DevelopKernels.detail, image, [
-            fine, coarse, base,
+            texBlur, base,
             DevelopKernels.vector((texture / 100).clamped(to: -1...1), (clarity / 100).clamped(to: -1...1)),
+            DevelopKernels.vector(m.texturePos, m.textureNeg, m.clarityPos, m.clarityNeg),
         ])
     }
 
-    /// Dehaze -100...100 (dark-channel prior with an edge-aware haze estimate).
+    /// Dehaze -100...100 (dark-channel prior on P-encoded channels with an edge-aware haze estimate).
     static func dehaze(_ image: CIImage, amount: Double, context: RenderContext) -> CIImage {
         guard amount != 0 else { return image }
+        let m = PresenceModel.current
         let dark = DevelopKernels.apply(DevelopKernels.darkChannel, image, [])
         // Minimum filter (on the small image) so bright details don't read as haze.
-        let base = edgeAwareBase(dark, guide: perceptualLuma(image), radiusFraction: 0.015, context: context) {
+        let base = edgeAwareBase(dark, guide: perceptualLuma(image), radiusFraction: CGFloat(m.dehazeRadius), context: context) {
             $0.clampedToExtent().applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: 1])
         }
-        return DevelopKernels.apply(DevelopKernels.dehaze, image, [base, (amount / 100).clamped(to: -1...1)])
+        func v4(_ s: SIMD4<Double>) -> CIVector { DevelopKernels.vector(s.x, s.y, s.z, s.w) }
+        return DevelopKernels.apply(DevelopKernels.dehaze, image, [base, (amount / 100).clamped(to: -1...1),
+                                                                   v4(m.dehazePlus), v4(m.dehazeMinus)])
     }
 
     /// Vibrance and saturation -100...100 (Oklab chroma; vibrance protects saturated colors & skin).

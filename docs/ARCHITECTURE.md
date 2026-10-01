@@ -37,7 +37,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Library/Flags/*` | flag actions (auto-advance), grid filter bar, `LibraryKeyMonitor` (installs the shortcut dispatcher; D, ⌘A) |
 | `Previews/*` (+ `Previews/UI/*`) | preview service, disk cache, lanes, build jobs, settings, recent Develop renders + neighbour prefetch (+ settings view, Library > Previews menu, toolbar activity, `rr` DevScript) |
 | `Develop/EditSettings.swift`, `GeometryMath.swift`, `CanvasGeometry.swift`, `RenderPipeline.swift` | edit model, geometry maps, render pipeline |
-| `Develop/Stages/*` | the 7 render stages + `LocalAdjustmentRenderer` |
+| `Develop/Stages/*` | the 8 render stages + `LocalAdjustmentRenderer` |
 | `Develop/Adjustments/*`, `Develop/Kernels/*` | adjustment ops, Metal CI kernels, histogram, WB estimator, baseline exposure; `Adjustments/UI/*` clipboard, WB picker, histogram view, DevScript |
 | `Develop/Masking/*` (+ `Masking/UI/*`) | mask rasterization (engine) + mask tool state/interaction/coverage overlay |
 | `Develop/Crop/*` | crop math, crop actions on `DevelopSession`, preset catalog API + editor, `CropKeyMonitor` |
@@ -476,6 +476,8 @@ static func apply(_ image: CIImage, settings: EditSettings, context: RenderConte
    when `!context.applyCrop` output the whole frame. **Implemented** (one affine transform; cropped
    output = round(full-res crop size × `requestedScale`) px, exact aspect ±1 px).
 7. `EffectsStage` — post-crop vignette + grain relative to final extent. **Implemented.**
+8. `OutputStage` — RAW only (`RenderContext.extendedRange`): rolls the extended range above 1.0 off
+   into 0…1 (per-channel shoulder in P, knee P 0.86, half of the input hue re-imposed: `OutputStage.hueKeep` 0.5). Replaces CIRAWFilter's SDR clip.
 
 `LocalAdjustmentRenderer.apply(_ image: CIImage, _ adj: LocalAdjustments, context: RenderContext) -> CIImage`
 (pass the stage's `context` through so eager intermediates use the right CIContext).
@@ -483,7 +485,9 @@ static func apply(_ image: CIImage, settings: EditSettings, context: RenderConte
 `RenderContext`: `fullSize` (full-res oriented px), `imageSize` (pre-geometry extent at render scale),
 `scale` (multiply pixel radii by it), `draft`, `applyCrop`, `ciPoint(_ NormPoint) -> CGPoint`
 (top-left normalized → CI bottom-left pixel coords of the pre-geometry image), `requestedScale`
-(scale asked of the decoder; CIRAWFilter rounds sizes up, so it can differ slightly from `scale`).
+(scale asked of the decoder; CIRAWFilter rounds sizes up, so it can differ slightly from `scale`),
+`extendedRange` (decode carries highlights above 1.0 → OutputStage rolls them off; `source.isRAW` —
+set it wherever you build a RenderContext for `applyStages`, e.g. RegionRenderer).
 
 ## Develop engine: color spaces, kernels, interactive rendering
 
@@ -492,17 +496,24 @@ sRGB primaries**, extent `(0,0,W,H)`):
 
 | Stage | Works in | Notes |
 |---|---|---|
-| RawDecodeStage | camera space → linear | CIRAWFilter: demosaic, WB, `exposure` + `baselineExposure` in **scene-linear** light, then its base tone curve (boost) → **display-referred linear** (1.0 = diffuse white, >1 = recovered highlights). Non-RAW: decoded to linear sRGB. |
-| ToneStage | perceptual luminance P = Y^(1/2.2) | curve on P, applied back as a luminance ratio (hue kept); highlights/shadows from an edge-aware (guided-filter) base of P |
-| PresenceStage | P (texture, clarity), linear (dehaze), Oklab (vibrance, saturation) | |
+| RawDecodeStage | camera space → linear | CIRAWFilter: demosaic, WB, `exposure` + `baselineExposure` in **scene-linear** light, then its base tone curve (boost) → **display-referred linear** with `extendedDynamicRangeAmount = 2`: 1.0 = diffuse white, highlights above it are KEPT (up to ≈ 2 stops; ~linear in exposure) instead of clipped. Partially clipped raw highlights fade to neutral towards the raw clip level (`RenderSource.highlightClip`). Non-RAW: decoded to linear sRGB (≤ 1, no roll-off). |
+| ToneStage | perceptual luminance P = Y^(1/2.2) | contrast = power curve in P around 0.46; highlights/shadows = EV gains from the log2 luminance of an edge-aware (guided-filter) base (Lightroom-like power-law compression/expansion around a pivot, constants in `AdjustmentOps.ToneModel`), applied back as a luminance ratio (hue kept); whites/blacks |
+| PresenceStage | P (texture = unsharp mask, clarity = large edge-aware base), P-encoded channels (dehaze: haze model with dark-channel transmission), Oklab (vibrance, saturation) | constants in `AdjustmentOps.PresenceModel` |
 | ColorMixerStage | OkLCh | 8 band centers, smooth partition-of-unity falloff |
 | MaskStage → LocalAdjustmentRenderer | same as the global stages (it reuses `AdjustmentOps`) | local temp/tint = luminance-preserving RGB gains, exposure = linear gain |
 | EffectsStage | P | vignette on the final extent; grain seeded by `RenderContext.seed`, sized in full-res pixels |
+| OutputStage | per channel P | RAW only: shoulder of the extended range into 0…1 (identity below P 0.86), input hue half re-imposed |
 
 - **Camera-matched baseline** (`Adjustments/BaselineExposure.swift`): CIRAWFilter's default render is
   much darker than the camera JPEG (Leica SL2: +0.45…+2 EV in the midtones). `makeSource` compares a tiny
   default decode with the embedded JPEG and stores `RenderSource.baselineOffset` (EV, clamped −1…+1.5,
   highlight-guarded), applied via `baselineExposure`. "No edits" now looks like the Library thumbnail.
+  The same tiny extended-range decode yields `RenderSource.highlightClip` (`BaselineExposure.analyze`).
+- **Lightroom calibration** (`Tools/lrmatch_check.swift`, see Tools/README): the tone / presence
+  constants (`AdjustmentOps.ToneModel.lightroom`, `PresenceModel.lightroom`) were fitted so each slider's
+  EFFECT matches Lightroom Classic exports of a reference DNG (per tone zone, local-contrast bands, 1:1
+  crops). `.current` is only changed by that harness. Masks reuse the same ops, so local and global
+  sliders stay consistent.
 - **Decode scale**: RawDecodeStage decodes at a scale where both dimensions are whole pixels (j / gcd(w,h))
   and Lanczos-resamples the remainder — CIRAWFilter otherwise adds a garbage edge row/column (bright line).
 - **Kernels** (`Kernels/DevelopKernels.swift`): Metal CI color kernels compiled at runtime with
@@ -513,7 +524,7 @@ sRGB primaries**, extent `(0,0,W,H)`):
   Radii are fractions of the long side ⇒ proxy, thumbnail and export look alike. Small blurred bases are
   rendered eagerly with `RenderContext.ciContext` (otherwise large tiled renders re-evaluate the whole
   graph per tile).
-- **Pipeline additions**: `RenderPipeline.applyStages(_:settings:context:)` (stages 2–7, used by `render` and zoomed region renders), `RenderPipeline.interactiveContext` (caches intermediates: a slider change
+- **Pipeline additions**: `RenderPipeline.applyStages(_:settings:context:)` (stages 2–8, used by `render` and zoomed region renders), `RenderPipeline.interactiveContext` (caches intermediates: a slider change
   re-renders a 60 MP DNG at 1600 px in ~5–15 ms), `render(…, proxyScale:, context:)`,
   `renderCGImage(…, proxyScale:, context:)`, `makeCGImage(_:colorSpace:context:)` (renders NOW, not
   deferred to draw time), `RenderContext.seed` / `.ciContext`, `RenderSource.seed/baselineOffset/defaultBaselineExposure`.
