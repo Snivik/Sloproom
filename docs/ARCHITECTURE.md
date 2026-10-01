@@ -42,7 +42,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 | `Develop/Masking/*` (+ `Masking/UI/*`) | mask rasterization (engine) + mask tool state/interaction/coverage overlay |
 | `Develop/Crop/*` | crop math, crop actions on `DevelopSession`, preset catalog API + editor, `CropKeyMonitor` |
 | `Develop/DevelopSession.swift`, `DevelopView/Canvas/Inspector`, `DevelopSlider`, `Panels/*`, `Overlays/*` | develop session + UI |
-| `Develop/Zoom/*` | canvas zoom / pan (`ZoomController`, `RegionRenderer` engine), view bar, panel visibility (Tab / ⇧Tab), full-screen preview (F), DevScript |
+| `Develop/Zoom/*` | canvas zoom / pan (`ZoomController`, `RegionRenderer` engine; free-form pinch, smart magnify), view bar, panel + folder sidebar visibility (Tab / ⇧Tab / ⌃⌘S, per mode), full-screen preview (F), DevScript |
 | `Export/ExportEngine.swift` (+ `Export/UI/*`) | JPEG export engine (+ sheet, controller, File > Export… / context menu, DevScript) |
 | `Shortcuts/*` | keyboard shortcut registry (`ShortcutModel`, `ShortcutStore`), dispatcher + menu items (`ShortcutKeys`), Settings > Keyboard, tooltip helpers (`SegmentHelp`), DevScript |
 | `CatalogTransfer/*` | Export Catalog / Import Catalog (engine `CatalogTransfer.swift`; controller, sheet + `CatalogTransferCommands`, DevScript) |
@@ -236,7 +236,7 @@ Injected with `.environment(model)`; views use `@Environment(AppModel.self)`.
 Menus (`SloproomCommands` + `PreviewCommands` + `ExportCommands` + `CatalogTransferCommands`): File > New Folder, Import Photos…,
 Import Lightroom Catalog…, Add Folder in Place (Dev)…, Export…, Export Catalog…, Import Catalog…; Edit > Undo/Redo route to the develop session
 in Develop mode, otherwise to the responder chain; Edit > Select All Photos; Photo > Pick, Unflag, Reject, Auto Advance After Flagging,
-Set Rating (0–5), Copy / Paste Settings, Before / After; View > Library, Develop, Keyboard Shortcuts…; Library > Previews ▸ (build /
+Set Rating (0–5), Copy / Paste Settings, Before / After; View > Library, Develop, Show / Hide Folders, Keyboard Shortcuts…; Library > Previews ▸ (build /
 regenerate / discard for selection, build all, clean cache); Help > Keyboard Shortcuts…. Every item with a shortcut is a
 `ShortcutMenuButton` (keys: see the registry below). Menu items that act on the selection read
 `model.actionTargetIDs` when chosen (menu-bar Commands are not re-rendered on selection changes, so
@@ -275,7 +275,9 @@ View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a to
   by `MainWindowView.libraryKeyShortcuts`): computes the context of the key window (main window or the
   full-screen window; nil while a text field is edited, a sheet is up, or another window such as Settings is
   key), asks the store for candidates and performs the first one whose registered handler is available; if
-  the first match is a menu command without handler it lets the menu take the key. Non-repeating actions
+  the first match is a menu command without handler it lets the menu take the key. A ⇧ key press with no
+  candidates is retried as the character it typed without ⇧ (`KeyCombo.shiftedAlternative`: German ⇧⌘0 = "⌘="),
+  and `lastDispatch` also records "no available handler" (an unhandled key ends in NSBeep). Non-repeating actions
   swallow auto-repeats (holding X in crop never falls through to Reject). Views register handlers with
   `.shortcutHandlers(id:) { [ShortcutHandler(.action, when: { event in … }) { event in … }] }`
   (re-registered when `id` changes, removed on disappear); `release:` = key-up of held keys (Space).
@@ -304,7 +306,9 @@ View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a to
 | Full Screen Preview (`fullScreenPreview`) | F | Everywhere (opens from the main window, closes in full screen) | `FullScreenShortcut` (FullScreenPreview.swift) + `FullScreenPreview.installKeys` |
 | Close Full Screen Preview (`exitFullScreen`) | Esc | Full Screen | `FullScreenPreview.installKeys` |
 | Previous / Next Photo | ← / → | Develop & Full Screen | `DevelopCanvasView` (not while the sidebar list has focus), `FullScreenPreview` |
-| Zoom Fit ↔ 1:1 at the pointer, Zoom In, Zoom Out | Z, ⌘= (⌘+), ⌘- | Develop & Full Screen | `ZoomEventMonitor` (handlers per ZoomController / window) |
+| Zoom Fit ↔ 1:1 at the pointer, Zoom In, Zoom Out (next / previous preset, also from a free pinch level) | Z, ⌘= (⌘+), ⌘- (⌘_) | Develop & Full Screen | `ZoomEventMonitor` (handlers per ZoomController / window) |
+| Zoom to Fit (`zoomFit`) | ⌘0 | Develop & Full Screen | `ZoomEventMonitor` |
+| Show / Hide Folders (`toggleSidebar`) | ⌃⌘S | Everywhere (menu View > Show / Hide Folders; the toolbar sidebar button and the view bar button do the same) | menu (`SloproomCommands` → `DevelopPanels.toggleSidebar(in:)`, per mode) |
 | Hand Tool (hold) (`temporaryHand`) | Space | Develop & Full Screen | `ZoomEventMonitor` (key-up releases) |
 | Show / Hide Side Panels, All Panels | Tab, ⇧Tab | Develop | `DevelopPanels` (`developPanelShortcuts`) |
 | Increase / Decrease Thumbnail Size | ⌘= (⌘+) / ⌘- (step 20 pt of the 100…400 slider) | Library | `LibraryGridView` |
@@ -318,8 +322,9 @@ View / Help > Keyboard Shortcuts…). Never hard-code a key in a handler or a to
 | Cancel White Balance Selector (`cancelWhiteBalance`) | Esc | WB selector armed | `WhiteBalancePickerOverlay` |
 
 Not in the registry (standard controls): Return / Esc of sheet default / cancel buttons (`.keyboardShortcut(.defaultAction/.cancelAction)`),
-text-field editing keys, sidebar list navigation, the system menu items (⌘Q, ⌘W, ⌘,, Toggle Sidebar ⌥⌘S…),
-pinch / ⌘- or ⌥-scroll zoom and scroll panning (`ZoomEventMonitor`'s scroll/magnify monitor), mouse (click = zoom toggle, drag = pan).
+text-field editing keys, sidebar list navigation, the system menu items (⌘Q, ⌘W, ⌘,, the hidden Toggle Sidebar ⌥⌘S…),
+pinch (free-form) / two-finger double tap (smart magnify: Fit ↔ 100 %) / ⌘- or ⌥-scroll zoom and scroll panning
+(`ZoomEventMonitor`'s scroll / magnify / smartMagnify monitor), mouse (click = zoom toggle, drag = pan).
 
 ### Folders / flags UI (`Library/Sidebar/*`, `Library/Flags/*`)
 
@@ -533,17 +538,28 @@ Convert with `let g = session.canvasGeometry(imageRect: imageRect)`:
 - zoom / pan: `CanvasViewport` (same file, pure math): `canvasSize`, `displayedSize` (source px),
   `displayScale`, `margin`, `level: ZoomLevel (.fit/.fill/.ratio(r), r = device px per image px)`,
   `center` (displayed-normalized point at the view center) → `imageRect` (clamped: the image can't
-  leave the view), `visibleDisplayedRect`, `zoomed(to:anchor:)`, `panned(by:)`, `magnified(by:anchor:)`,
-  `stepped(in:)`.
+  leave the view), `visibleDisplayedRect`, `zoomed(to:anchor:)`, `zoomed(to:placing:at:)` (put a given
+  displayed point under a view point), `panned(by:)`, `magnified(by:anchor:holding:)` (`holding` = a pinch's
+  starting point, so the anchor doesn't drift while the image is still centered), `stepped(in:)`.
+  `ZoomLevel.steps` = 25 / 50 / 100 / 200 / 400 / 800 % (`maxRatio` 8).
 
 ### Zoom, panels, full screen (`Develop/Zoom/`)
 
 - `ZoomController` (@Observable; `.develop` shared across photos, the full-screen preview has its
-  own): viewport + actions (`toggle(at:)`, `step`, `pan`, `magnify`, `setLevel`), locked to Fit while
-  the crop tool is active. The canvas shows the fit render scaled immediately; ~100 ms after the view
-  settles (settings changes: at once) `RegionRenderer` renders only the visible region (+96 px) at
-  `min(1, pixelRatio)` and `tile` is drawn over it. The old tile stays up during edits unless the
-  geometry changed.
+  own): viewport + actions (`toggle(at:)`, `step`, `pan`, `magnify(by:anchor:phase:)`, `smartMagnify(at:)`,
+  `zoomToFit()`, `setLevel`), locked to Fit while the crop tool is active. The canvas shows the fit render
+  scaled immediately; ~100 ms after the view settles (settings changes: at once) `RegionRenderer` renders
+  only the visible region (+96 px) at `min(1, pixelRatio)` and `tile` is drawn over it. The old tile stays
+  up (scaled) during edits / zooming until the new one replaces it, unless the geometry changed.
+  `window` is only ever set by the canvas (never cleared: on a photo switch the old canvas leaves the
+  window after the new one joined it — clearing it killed ⌘= / Z / pinch after the first photo change).
+- Trackpad pinch = free-form zoom Fit … 800 % (pinching out past Fit snaps to Fit), anchored at the
+  fingers (the point under them at `began` is held). Per event only `viewport` changes (≈ 0.05 ms in the
+  handler, ≈ 5–7 ms main-thread frame incl. SwiftUI update + commit on a 60 MP DNG); the region render
+  waits for a 150 ms pause and starts at once on `ended` (≈ 35–60 ms later the sharp tile is up).
+  `stats` (DevScript `zoomstats`) records handler / frame / sharp-after-end times (`FrameCostProbe`).
+  Two-finger double tap (`.smartMagnify`) = Fit ↔ 100 % at the pointer. The full-screen preview shares
+  `ZoomEventMonitor`, so all of this works there too.
 - `RegionRenderer` (engine, harness `Tools/zoom_check.swift`): builds the graph at the zoom scale and
   crops the output to the region before rendering (CIRAWFilter is ROI-aware: 1:1 2800×1672 px of a
   60 MP DNG ≈ 20–30 ms). Settings with neighbourhood ops (highlights/shadows/clarity/dehaze, local
@@ -552,10 +568,16 @@ Convert with `let g = session.canvasGeometry(imageRect: imageRect)`:
   and region renders then take ≈ 40–50 ms. Uses `RenderPipeline.applyStages` (stages 2–7 on a decode).
 - Canvas layers: image + tile, `HandToolLayer` (tool none: click = zoom toggle, drag = pan), tool
   overlay, WB eyedropper, space-bar `HandToolLayer` (over every tool but crop), `ZoomNavigator`
-  (mini map while zoomed), `ZoomHUD`. `DevelopViewBar` (under the canvas): Fit / Fill / 1:1 + level
-  menu with the current %, panel toggles, full-screen button.
-- `DevelopPanels.shared`: `sidebarHidden/inspectorHidden/filmstripHidden` (per app session);
-  `columnVisibility(mode:)` is MainWindowView's NavigationSplitView binding (Library keeps its own).
+  (mini map while zoomed), `ZoomHUD`. `DevelopViewBar` (under the canvas): Fit / Fill / 1:1 (+ a
+  selected "200%"-style preset segment or "Custom" for a free level) + level menu with the current %
+  ("137%", fixed width so pinch frames don't re-lay out the column), panel toggles, full-screen button.
+- `DevelopPanels.shared`: `sidebarHidden/inspectorHidden/filmstripHidden` (Develop) and
+  `librarySidebarHidden` (per app session; the folder sidebar is remembered PER MODE).
+  `columnVisibility(model:)` is MainWindowView's NavigationSplitView binding: it reads `model.mode` when
+  called (SwiftUI keeps the binding its toolbar toggle was created with — a binding capturing the mode
+  wrote Develop's toggles into the Library state, so the toolbar button did nothing in Develop);
+  MainWindowView reads `isSidebarHidden(in:)` in its body so changes re-render. `toggleSidebar(in:)` =
+  View > Show / Hide Folders (⌃⌘S), toolbar button, view bar button.
   The inspector stays in the hierarchy at zero width while hidden (its panels install key monitors).
 - `FullScreenPreview.shared`: borderless window over the main window's screen (menu bar + Dock hidden
   unless the main window is in native full screen), black, standard preview first then a render at

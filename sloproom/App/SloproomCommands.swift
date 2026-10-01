@@ -50,6 +50,8 @@ struct SloproomCommands: Commands {
             ShortcutMenuButton(.libraryMode) { model.mode = .library }
             ShortcutMenuButton(.developMode) { model.mode = .develop }
             Divider()
+            ShortcutMenuButton(.toggleSidebar) { DevelopPanels.shared.toggleSidebar(in: model.mode) }
+            Divider()
             KeyboardShortcutsMenuButton()
             Divider()
         }

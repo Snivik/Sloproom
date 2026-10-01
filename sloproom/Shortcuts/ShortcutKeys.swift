@@ -64,6 +64,16 @@ extension KeyCombo {
         self.init(String(c), mods)
     }
 
+    /// ⇧ + key typed a different character that is bound without ⇧ (e.g. ⇧⌘0 = "⌘=" on a German
+    /// layout): that character with the remaining modifiers.
+    static func shiftedAlternative(of event: NSEvent, primary: KeyCombo) -> KeyCombo? {
+        guard primary.modifiers.contains(.shift), !primary.isSpecialKey,
+              let typed = event.charactersIgnoringModifiers?.first,
+              typed.unicodeScalars.allSatisfy({ $0.value >= 0x21 && $0.value < 0xF700 }) else { return nil }
+        let alt = KeyCombo(String(typed), primary.modifiers.subtracting(.shift))
+        return alt.key == primary.key ? nil : alt
+    }
+
     var keyEquivalent: KeyEquivalent {
         switch key {
         case "return": return .return
@@ -335,9 +345,16 @@ final class ShortcutDispatcher {
             handler.release?()
             return true
         }
-        guard let context = context(for: event), let combo = KeyCombo(event: event) else { return false }
+        guard let context = context(for: event), let primary = KeyCombo(event: event) else { return false }
         let store = ShortcutStore.shared
-        for action in store.candidates(for: combo, in: context) {
+        var combo = primary
+        var candidates = store.candidates(for: combo, in: context)
+        // Layouts where the bound character needs ⇧ (German ⌘= is ⇧⌘0): match the typed character too.
+        if candidates.isEmpty, let alt = KeyCombo.shiftedAlternative(of: event, primary: primary) {
+            combo = alt
+            candidates = store.candidates(for: alt, in: context)
+        }
+        for action in candidates {
             if let handler = handlers(for: action).first(where: { $0.isAvailable(event) }) {
                 lastDispatch = "\(combo.display) → \(action.id) in \(context.rawValue)"
                 if event.isARepeat && !action.repeats { return true }   // swallow: never falls through to a menu item
@@ -349,6 +366,9 @@ final class ShortcutDispatcher {
                 lastDispatch = "\(combo.display) → menu \(action.id) in \(context.rawValue)"
                 return false
             }
+        }
+        if !candidates.isEmpty {
+            lastDispatch = "\(combo.display) → no available handler for \(candidates.map(\.id)) in \(context.rawValue)"
         }
         return false
     }

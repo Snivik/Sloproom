@@ -82,6 +82,26 @@ struct ZoomCheck {
         if case .ratio(let r) = v.magnified(by: 100, anchor: nil).level { check(r <= ZoomLevel.maxRatio, "pinch is capped at max ratio") }
         else { check(false, "pinch in gives a ratio") }
 
+        // Free-form pinch: a level between the presets, steps from it, the anchor held from Fit.
+        let free = fitV.magnified(by: 1.37 / fitV.pixelRatio, anchor: nil)
+        check(near(free.pixelRatio, 1.37, 1e-6) && CanvasViewport.label(free.level) == "137%", "pinch gives a free level (137%)")
+        check(free.stepped(in: true) == .ratio(2) && free.stepped(in: false) == .ratio(1), "⌘= / ⌘- from 137% → 200% / 100%")
+        check(v.zoomed(to: .ratio(4)).stepped(in: true) == .ratio(8), "⌘= from 400% → 800% (max)")
+        // Many small pinch steps from Fit anchored near a corner: holding the starting image point
+        // keeps it under the fingers once the image is larger than the view (incremental anchoring
+        // drifts while the image is still centered).
+        let corner = CGPoint(x: 120, y: 90)
+        let start = fitV.displayedPoint(fromView: corner)
+        var pinch = fitV
+        for _ in 0..<20 { pinch = pinch.magnified(by: pow(1.37 / fitV.pixelRatio, 1.0 / 20), anchor: corner, holding: start) }
+        let held = pinch.displayedPoint(fromView: corner)
+        check(near(pinch.pixelRatio, 1.37, 1e-3), "20-step pinch reaches 137% (\(pinch.pixelRatio))")
+        check(near(held.x, start.x, 0.0005) && near(held.y, start.y, 0.0005), "pinch keeps the image point under the fingers (\(start) → \(held))")
+        var drift = fitV
+        for _ in 0..<20 { drift = drift.magnified(by: pow(1.37 / fitV.pixelRatio, 1.0 / 20), anchor: corner) }
+        let drifted = drift.displayedPoint(fromView: corner)
+        print("  info incremental anchoring would have drifted to \(drifted)")
+
         // Image smaller than the view (50% on a small photo): centered.
         let small = CanvasViewport(canvasSize: CGSize(width: 1400, height: 900), displayedSize: CGSize(width: 1000, height: 800),
                                    displayScale: 2, level: .ratio(1), center: CGPoint(x: 0.1, y: 0.9))

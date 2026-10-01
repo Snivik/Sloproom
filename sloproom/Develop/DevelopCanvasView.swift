@@ -63,7 +63,11 @@ struct DevelopCanvasView: View {
                 }
                 ZoomHUD(zoom: zoom)
             }
-            .background(WindowReader { zoom.window = $0 })
+            // Only ever SET the window: `ZoomController.develop` outlives this view, and on a photo
+            // switch the old canvas (`.id(photo)`) leaves its window AFTER the new one joined it —
+            // clearing it here made ⌘= / ⌘- / Z / pinch / ⌘-scroll dead (NSBeep) after the first
+            // photo change.
+            .background(WindowReader { if let w = $0 { zoom.window = w } })
             .onAppear {
                 updatePixelSize(bounds.size)
                 zoom.canvasFrame = geo.frame(in: .global)

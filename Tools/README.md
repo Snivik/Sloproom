@@ -87,7 +87,13 @@ Snapshots must also be written inside the container. View them with the Read too
   reach an ACTIVE app; the polite `activate` is refused while the owner uses another app),
   `zmaskdrag x1 y1 x2 y2`, `zmaskexp ev`, `panels tab|shifttab|show`,
   `fullscreen on|off|next|prev|wait|dump|snapshot <png>`, `fskey left|right|z|f|escape`, `fullz <percent> [nx ny]`,
-  `winfull` (native ⌃⌘F full screen).
+  `winfull` (native ⌃⌘F full screen). Real trackpad gestures (CGEvents of type gesture with the HID zoom /
+  zoom-toggle fields, posted through the event queue, so `ZoomEventMonitor` sees real `.magnify` /
+  `.smartMagnify` NSEvents): `pinch x y factor [steps=20] [ms=16] [hold]` (began, steps, ended at canvas point
+  x y; `pinch end` ends a held one), `smartmagnify x y`, `fsmagnify x y factor` (full-screen window),
+  `zoomstats` (events, handler / frame ms avg + max, sharp render after the end), `sidebar` (folder sidebar
+  per mode), `rawkey <keyCode> <chars> <ignoringMods> [cmd shift opt ctrl]` (explicit characters, e.g. a
+  German ⌘= `rawkey 29 = = cmd shift`). `zoomdump` also prints the controller's window.
   Develop latency / preview caches (`Previews/UI/RecentRendersDevScript.swift`): `rr time next|prev|<index>`
   (ms until first image / sharp image / source loaded / final render), `rr stats`, `rr reset`, `rr dump`,
   `rr sheet` / `rr closesheet` (preview settings sheet), `rr limit <n>|reset`, `rr clean`.
@@ -146,7 +152,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `develop_check` | – | `[dng] [out-dir] [only-name-substring]` |
 | `masks_check` | `sloproom/Develop/DevelopSession.swift sloproom/Develop/Masking/UI/{MaskInteraction,MaskToolState,DevelopSession+Masks}.swift sloproom/Develop/Crop/{DevelopSession+Crop,CropMath,Catalog+CropPresets}.swift` | `[dng] [out-dir]` |
 | `crop_check` | `sloproom/Develop/Crop/CropMath.swift sloproom/Develop/Crop/Catalog+CropPresets.swift` | `[photo-dir] [out-dir]` |
-| `zoom_check` | `sloproom/Develop/Zoom/RegionRenderer.swift` | `[dng]` (viewport math, region render == full render, 1:1 timings) |
+| `zoom_check` | `sloproom/Develop/Zoom/RegionRenderer.swift` | `[dng]` (viewport math incl. free pinch levels, steps from them, pinch anchor held over 20 steps; region render == full render, 1:1 timings) |
 | `catalog_transfer_check` | `sloproom/CatalogTransfer/CatalogTransfer.swift sloproom/LightroomImport/RootAccess.swift` | `[catalog-dir to COPY] [out-dir]` (default: the realistic catalog copy `…/Data/tmp/catalog/pristine`, `/private/tmp/claude-501/catalog-out/run`) |
 | `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |

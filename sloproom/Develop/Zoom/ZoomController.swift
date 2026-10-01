@@ -13,6 +13,11 @@
 //    away (one render in flight, latest wins); the old tile stays up meanwhile unless the
 //    geometry changed.
 //  - Zoom is locked to Fit while `isLocked` (crop tool).
+//  - Trackpad pinch (`magnify(by:anchor:phase:)`) is free-form (Fit … 800 %), anchored at the
+//    pointer. Each event only moves `viewport` (the canvas transforms the images it already has);
+//    the region render waits until the fingers pause for 150 ms or lift (then at once), and the
+//    old tile stays up, scaled, until the sharp one replaces it. Two-finger double tap
+//    (`smartMagnify(at:)`) toggles Fit ↔ 100 % at the pointer.
 //
 
 import AppKit
@@ -74,6 +79,23 @@ final class ZoomController {
     @ObservationIgnored private var refineTask: Task<Void, Never>?
     @ObservationIgnored private var hudTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+
+    /// A trackpad pinch is in progress (between its began and ended events).
+    @ObservationIgnored private(set) var gestureActive = false
+    /// Displayed-normalized image point that was under the fingers when the pinch began (kept under them).
+    @ObservationIgnored private var gesturePoint: CGPoint?
+    /// When the last pinch ended (until its sharp render is up), for `stats.sharpAfterEndMS`.
+    @ObservationIgnored private var gestureEndedAt: Date?
+    /// Pinch timing (DevScript `zoomstats`): per-event handling, per-frame cost, sharp render after lift.
+    struct GestureStats {
+        var events = 0
+        var handlerMSTotal = 0.0, handlerMSMax = 0.0
+        var frames = 0
+        var frameMSTotal = 0.0, frameMSMax = 0.0
+        var sharpAfterEndMS: Double?
+        var sharpRendered = false
+    }
+    @ObservationIgnored var stats = GestureStats()
 
     var level: ZoomLevel { viewport.level }
     var imageRect: CGRect { viewport.imageRect }
@@ -153,12 +175,45 @@ final class ZoomController {
         scheduleRefine(delay: 100)
     }
 
-    /// Pinch / ⌘-scroll.
-    func magnify(by factor: CGFloat, anchor: CGPoint?) {
-        guard !isLocked, factor > 0, factor != 1 else { return }
-        viewport = viewport.magnified(by: factor, anchor: anchor)
-        flashHUD()
-        scheduleRefine(delay: 100)
+    /// Phase of a magnify event (`.none` = a discrete step, e.g. ⌘-scroll).
+    enum GesturePhase { case none, began, changed, ended }
+
+    /// Pinch / ⌘-scroll: free-form zoom by `factor` keeping the image point under `anchor`
+    /// fixed. During a pinch the sharp re-render waits for a 150 ms pause; at the end it starts at once.
+    func magnify(by factor: CGFloat, anchor: CGPoint?, phase: GesturePhase = .none) {
+        guard !isLocked else { gestureActive = false; return }
+        if phase == .began {
+            gestureActive = true
+            gestureEndedAt = nil
+            gesturePoint = anchor.map { viewport.displayedPoint(fromView: $0) }
+        }
+        if factor > 0, factor != 1, factor.isFinite {
+            let v = viewport.magnified(by: factor, anchor: anchor, holding: phase == .none ? nil : gesturePoint)
+            if v != viewport {
+                viewport = v
+                flashHUD()
+            }
+        }
+        if phase == .ended {
+            gestureActive = false
+            gesturePoint = nil
+            gestureEndedAt = Date()
+            stats.sharpAfterEndMS = nil
+            scheduleRefine(delay: 0)
+        } else {
+            scheduleRefine(delay: phase == .none ? 100 : 150)
+        }
+    }
+
+    /// Two-finger double tap (smart magnify): Fit ↔ 100 % around `anchor`, like Preview / Lightroom.
+    func smartMagnify(at anchor: CGPoint?) {
+        guard !isLocked else { return }
+        setLevel(isZoomed ? .fit : .ratio(1), anchor: anchor)
+    }
+
+    /// ⌘0.
+    func zoomToFit() {
+        setLevel(.fit, anchor: nil)
     }
 
     /// Current zoom for display: "Fit (23%)", "100%".
@@ -223,7 +278,10 @@ final class ZoomController {
     }
 
     private func refine() {
-        guard let inputs, isZoomed, !isLocked, viewport.pixelRatio > inputs.baseRatio * 1.05 else { return }
+        guard let inputs, isZoomed, !isLocked, viewport.pixelRatio > inputs.baseRatio * 1.05 else {
+            sharpAfterGesture(rendered: false)   // the base render is already sharp at this zoom
+            return
+        }
         let scale = min(1, viewport.pixelRatio)
         let visible = viewport.visibleDisplayedRect
         guard visible.width > 0, visible.height > 0 else { return }
@@ -232,7 +290,10 @@ final class ZoomController {
         let mx = 96 / max(d.width * viewport.pixelRatio, 1), my = 96 / max(d.height * viewport.pixelRatio, 1)
         let region = visible.insetBy(dx: -mx, dy: -my).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         if let tile, tile.photoID == inputs.photoID, tile.settings == inputs.settings, tile.applyCrop == inputs.applyCrop,
-           abs(tile.scale - scale) < 0.001, tile.normalizedRect.insetBy(dx: -1e-6, dy: -1e-6).contains(visible) { return }
+           abs(tile.scale - scale) < 0.001, tile.normalizedRect.insetBy(dx: -1e-6, dy: -1e-6).contains(visible) {
+            sharpAfterGesture(rendered: false)   // the current tile still covers the view
+            return
+        }
         if inFlight { pending = true; return }
         inFlight = true
         pending = false
@@ -253,7 +314,16 @@ final class ZoomController {
             lastRefineMS = result.milliseconds
             lastRefineCached = result.usedCachedDecode
             refineCount += 1
+            if !pending { sharpAfterGesture(rendered: true) }
         }
         if pending { pending = false; refine() }
+    }
+
+    /// Records the time from the end of a pinch to the sharp picture.
+    private func sharpAfterGesture(rendered: Bool) {
+        guard let end = gestureEndedAt, !gestureActive else { return }
+        gestureEndedAt = nil
+        stats.sharpAfterEndMS = Date().timeIntervalSince(end) * 1000
+        stats.sharpRendered = rendered
     }
 }
