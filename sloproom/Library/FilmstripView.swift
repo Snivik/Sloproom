@@ -7,7 +7,8 @@
 //  ⇧-click extends a range. The focused photo (the one open in Develop) gets a bright frame,
 //  other selected photos a lighter one; P / U / X / ratings act on the whole selection
 //  (`AppModel.actionTargetIDs`). Photos drag onto sidebar folders like grid cells (a selected
-//  photo drags the whole selection, ⌥ = move). Arrow keys: DevelopCanvasView (← / →).
+//  photo drags the whole selection, ⌘ = move, ⌥ = virtual copies). Arrow keys: DevelopCanvasView
+//  (← / →). Context menu: virtual copies + folders (`FilmstripPhotoMenu`).
 //
 //  Clicks are an `onTapGesture` next to `.onDrag`: unlike a List row (where `.onDrag`
 //  swallowed clicks in the sidebar), a plain view keeps both.
@@ -37,6 +38,7 @@ struct FilmstripView: View {
                                 model.click(photoID: photo.id, command: flags.contains(.command), shift: flags.contains(.shift))
                             }
                             .onDrag { PhotoDrag.provider(for: photo, model: model, selectUnselected: false) } preview: { PhotoDrag.preview(photo, model: model) }
+                            .contextMenu { FilmstripPhotoMenu(photo: photo, model: model) }
                     }
                 }
                 .padding(.horizontal, 6)
@@ -67,7 +69,8 @@ private struct FilmstripCell: View {
                 .overlay(alignment: .topLeading) {
                     FlagBadge(flag: photo.flag, isHovering: false, size: 16).padding(2)
                 }
-            Text(photo.fileName)
+                .overlay(alignment: .topTrailing) { VirtualCopyBadge(photo: photo, size: 16).allowsHitTesting(false).padding(2) }
+            Text(photo.displayTitle)
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -84,6 +87,6 @@ private struct FilmstripCell: View {
                 .strokeBorder(isFocused ? Color.accentColor : isSelected ? Color.accentColor.opacity(0.45) : .clear,
                               lineWidth: isFocused ? 2 : 1)
         )
-        .help(photo.fileName)
+        .help(photo.virtualCopyDescription ?? photo.fileName)
     }
 }

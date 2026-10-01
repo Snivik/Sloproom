@@ -142,8 +142,9 @@ enum FolderActions {
         do { try model.catalog.removePhotos(ids, fromFolders: sources) } catch { model.report(error) }
     }
 
-    /// Removes photos from the catalog (never deletes files). Callers confirm first.
+    /// Removes photos from the catalog (never deletes files; masters take their virtual copies
+    /// along) and deletes their previews. Callers confirm first.
     static func removeFromCatalog(_ ids: [Int64], model: AppModel) {
-        do { try model.catalog.removePhotos(ids: ids) } catch { model.report(error) }
+        VirtualCopyActions.removeFromCatalog(ids, model: model)
     }
 }

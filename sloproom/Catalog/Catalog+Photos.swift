@@ -11,13 +11,15 @@ nonisolated extension Catalog {
         p.id, p.path, p.root_id, p.file_name, p.file_size, p.capture_date, p.import_date, \
         p.width, p.height, p.orientation, p.camera_make, p.camera_model, p.lens, p.iso, \
         p.shutter, p.aperture, p.focal_length, p.flag, p.rating, p.edit_settings, \
-        p.edit_version, p.sidecar_path, p.lr_image_id
+        p.edit_version, p.sidecar_path, p.lr_image_id, p.master_id, p.copy_name
         """
 
     // MARK: - Insert
 
-    /// Inserts a photo, or returns the id of the existing photo with the same `path`
+    /// Inserts a photo, or returns the id of the existing photo (master) with the same `path`
     /// (existing rows are NOT modified). If `photo.rootID` is nil the covering root is filled in.
+    /// Always inserts masters (`masterID` / `copyName` are ignored; virtual copies are created
+    /// with `createVirtualCopies`).
     @discardableResult
     func insertPhoto(_ photo: Photo) throws -> Int64 {
         try insertPhotos([photo]).first ?? 0
@@ -38,7 +40,7 @@ nonisolated extension Catalog {
                         width, height, orientation, camera_make, camera_model, lens, iso, shutter,
                         aperture, focal_length, flag, rating, edit_settings, edit_version, sidecar_path, lr_image_id)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(path) DO NOTHING
+                    ON CONFLICT(path) WHERE master_id IS NULL DO NOTHING
                     """, [
                         p.path, rootID, p.fileName, p.fileSize, p.captureDate, p.importDate,
                         p.width, p.height, p.orientation, p.cameraMake, p.cameraModel, p.lens, p.iso, p.shutter,
@@ -49,7 +51,7 @@ nonisolated extension Catalog {
                     inserted = true
                     return db.lastInsertRowID
                 }
-                return try db.scalarInt("SELECT id FROM photos WHERE path = ?", [p.path]) ?? 0
+                return try db.scalarInt("SELECT id FROM photos WHERE path = ? AND master_id IS NULL", [p.path]) ?? 0
             }
         }
         if inserted { postChange(.photosInsertedOrRemoved) }
@@ -66,9 +68,9 @@ nonisolated extension Catalog {
         try db.locked { try ids.compactMap { try photo(id: $0) } }
     }
 
-    /// Id of the photo at `path`, if catalogued.
+    /// Id of the photo (master) at `path`, if catalogued. Virtual copies of it are not returned.
     func photoID(path: String) throws -> Int64? {
-        try db.scalarInt("SELECT id FROM photos WHERE path = ?", [path])
+        try db.scalarInt("SELECT id FROM photos WHERE path = ? AND master_id IS NULL", [path])
     }
 
     func photoIDExists(path: String) throws -> Bool {
@@ -135,7 +137,25 @@ nonisolated extension Catalog {
         case .folderOrder:
             sql += " ORDER BY fo \(dir), p.capture_date \(dir), p.id \(dir)"
         }
-        return try db.query(sql, args, Photo.init(row:))
+        return Self.groupingVirtualCopies(try db.query(sql, args, Photo.init(row:)))
+    }
+
+    /// Moves every virtual copy whose master is in the list right after its master (copies in
+    /// creation order = copy number order), under any sort; copies without their master in the
+    /// list keep their place. Stable, O(n).
+    static func groupingVirtualCopies(_ photos: [Photo]) -> [Photo] {
+        guard photos.contains(where: \.isVirtualCopy) else { return photos }
+        let listed = Set(photos.lazy.filter { !$0.isVirtualCopy }.map(\.id))
+        var copies: [Int64: [Photo]] = [:]
+        for p in photos { if let m = p.masterID, listed.contains(m) { copies[m, default: []].append(p) } }
+        var out: [Photo] = []
+        out.reserveCapacity(photos.count)
+        for p in photos {
+            if let m = p.masterID, listed.contains(m) { continue }
+            out.append(p)
+            if let group = copies[p.id] { out.append(contentsOf: group.sorted { $0.id < $1.id }) }
+        }
+        return out
     }
 
     // MARK: - Update
@@ -168,6 +188,7 @@ nonisolated extension Catalog {
     }
 
     /// Removes photos from the catalog (and from all folders). NEVER touches files on disk.
+    /// Removing a master also removes its virtual copies (`master_id` ON DELETE CASCADE).
     func removePhotos(ids: some Collection<Int64>) throws {
         guard !ids.isEmpty else { return }
         try db.transaction {
@@ -210,5 +231,7 @@ nonisolated extension Photo {
         editVersion = Int(r.int(20))
         sidecarPath = r.stringOrNil(21)
         lrImageID = r.intOrNil(22)
+        masterID = r.intOrNil(23)
+        copyName = r.stringOrNil(24)
     }
 }

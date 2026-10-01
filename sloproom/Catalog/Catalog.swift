@@ -173,14 +173,74 @@ nonisolated final class Catalog: @unchecked Sendable {
             ('Vertical 4:5', 4, 5, 2),
             ('Horizontal 3:2', 3, 2, 3);
         """,
+        // v2 — virtual copies: `photos` rebuilt (SQLite can't drop a column UNIQUE constraint)
+        // without UNIQUE(path), plus `master_id` (the original a virtual copy belongs to; copies
+        // share its path) and `copy_name` ("Copy 1", or a user name). Paths are unique among
+        // masters only (partial index). Ids, edits, flags and folder memberships are kept as is.
+        // Runs with foreign keys OFF (see `migrate()`), the official 12-step table rebuild.
+        """
+        CREATE TABLE photos_v2(
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            root_id INTEGER NULL REFERENCES roots(id) ON DELETE SET NULL,
+            file_name TEXT,
+            file_size INTEGER,
+            capture_date REAL NULL,
+            import_date REAL NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            orientation INTEGER DEFAULT 1,
+            camera_make TEXT,
+            camera_model TEXT,
+            lens TEXT,
+            iso INTEGER,
+            shutter REAL,
+            aperture REAL,
+            focal_length REAL,
+            flag INTEGER NOT NULL DEFAULT 0,
+            rating INTEGER NOT NULL DEFAULT 0,
+            edit_settings TEXT NULL,
+            edit_version INTEGER NOT NULL DEFAULT 0,
+            sidecar_path TEXT NULL,
+            lr_image_id INTEGER NULL,
+            master_id INTEGER NULL REFERENCES photos(id) ON DELETE CASCADE,
+            copy_name TEXT NULL
+        );
+        INSERT INTO photos_v2(id, path, root_id, file_name, file_size, capture_date, import_date,
+            width, height, orientation, camera_make, camera_model, lens, iso, shutter, aperture,
+            focal_length, flag, rating, edit_settings, edit_version, sidecar_path, lr_image_id)
+        SELECT id, path, root_id, file_name, file_size, capture_date, import_date,
+            width, height, orientation, camera_make, camera_model, lens, iso, shutter, aperture,
+            focal_length, flag, rating, edit_settings, edit_version, sidecar_path, lr_image_id
+        FROM photos;
+        DROP TABLE photos;
+        ALTER TABLE photos_v2 RENAME TO photos;
+        CREATE INDEX idx_photos_capture_date ON photos(capture_date);
+        CREATE INDEX idx_photos_import_date ON photos(import_date);
+        CREATE INDEX idx_photos_flag ON photos(flag);
+        CREATE INDEX idx_photos_root ON photos(root_id);
+        CREATE UNIQUE INDEX idx_photos_master_path ON photos(path) WHERE master_id IS NULL;
+        CREATE INDEX idx_photos_master ON photos(master_id);
+        """,
     ]
 
+    /// Applies the missing core migrations in ONE transaction. Table rebuilds (v2) need foreign
+    /// keys OFF — set outside the transaction (the pragma is a no-op inside one) — so dropping the
+    /// old table doesn't cascade into `folder_photos`; `foreign_key_check` must then find no new
+    /// broken reference before COMMIT, and foreign keys are switched back ON either way.
     private func migrate() throws {
         let current = Int(try db.scalarInt("PRAGMA user_version") ?? 0)
         guard current < Self.migrations.count else { return }
+        try db.execute("PRAGMA foreign_keys=OFF")
+        defer { try? db.execute("PRAGMA foreign_keys=ON") }
         try db.transaction {
+            let brokenBefore = try db.query("PRAGMA foreign_key_check") { _ in 0 }.count
             for version in current..<Self.migrations.count {
                 try db.execute(Self.migrations[version])
+            }
+            let brokenAfter = try db.query("PRAGMA foreign_key_check") { "\($0.string(0)) row \($0.int(1))" }
+            if brokenAfter.count > brokenBefore {
+                throw SQLiteError(code: 19, message: "migration broke \(brokenAfter.count - brokenBefore) references (\(brokenAfter.prefix(3).joined(separator: ", ")))", sql: nil)
             }
             try db.execute("PRAGMA user_version = \(Self.migrations.count)")
         }

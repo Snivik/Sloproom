@@ -42,8 +42,10 @@ struct LibraryGridView: View {
         ), presenting: keys.pendingCatalogRemoval) { ids in
             Button("Remove from Catalog", role: .destructive) { FolderActions.removeFromCatalog(ids, model: model) }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("The files on disk are not deleted.")
+        } message: { ids in
+            let copies = (try? model.catalog.cascadedVirtualCopyCount(removing: ids)) ?? 0
+            Text(copies > 0 ? "Virtual copies are removed with their original. The files on disk are not deleted."
+                            : "The files on disk are not deleted.")
         }
     }
 
@@ -158,6 +160,8 @@ struct LibraryGridView: View {
         let ids = targets(photo)
         let shown = model.shownFolderID
         Button("Open in Develop") { model.openInDevelop(photo.id) }
+        CreateVirtualCopyMenuItem(ids: ids, model: model)
+        RenameVirtualCopyMenuItem(ids: ids, model: model)
         Divider()
         Button("Pick") { flag(photo, .pick) }
         Button("Unflag") { flag(photo, .none) }
@@ -167,15 +171,20 @@ struct LibraryGridView: View {
             Menu("Add to Folder") {
                 FolderMenuTree(nodes: model.folderTree) { FolderActions.addPhotos(ids, to: $0, move: false, model: model) }
             }
+            .help(VirtualCopyActions.addHelp)
             if shown != nil {
                 Menu("Move to Folder") {
                     FolderMenuTree(nodes: model.folderTree, disabledID: shown) { FolderActions.addPhotos(ids, to: $0, move: true, model: model) }
                 }
+                .help(VirtualCopyActions.moveHelp)
             }
+            CopyToFolderMenu(ids: ids, model: model)
         }
         Button("New Folder with \(ids.count == 1 ? "Photo" : "\(ids.count) Photos")") {
             FolderActions.newFolder(parentID: nil, photoIDs: ids, model: model)
         }
+        .help("Creates a folder holding these photos (the same photos, edits shared)")
+        VirtualCopyFolderMenuItems(ids: ids, model: model)
         if shown != nil {
             Button("Remove from This Folder") { FolderActions.removeFromShownFolder(ids, model: model) }
         }
@@ -191,8 +200,7 @@ struct LibraryGridView: View {
     }
 
     private var removalTitle: String {
-        let n = keys.pendingCatalogRemoval?.count ?? 0
-        return n == 1 ? "Remove this photo from the catalog?" : "Remove \(n) photos from the catalog?"
+        VirtualCopyActions.removalTitle(keys.pendingCatalogRemoval ?? [], model: model)   // "… and its N virtual copies …"
     }
 
     private var bottomBar: some View {

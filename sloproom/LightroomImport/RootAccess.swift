@@ -165,11 +165,13 @@ nonisolated enum RelinkError: Error, CustomStringConvertible, LocalizedError {
 
 nonisolated extension Catalog {
     /// Photos that belong to `root`: under its path and not under a more specific root.
-    /// Returns (id, path, sidecar path).
-    func photoPaths(of root: Root) throws -> [(id: Int64, path: String, sidecar: String?)] {
+    /// Returns (id, path, sidecar path). Virtual copies (same path as their master) are included
+    /// unless `mastersOnly` (files: e.g. the relink check samples each file once).
+    func photoPaths(of root: Root, mastersOnly: Bool = false) throws -> [(id: Int64, path: String, sidecar: String?)] {
         let roots = try allRoots()
         let rootPath = Self.normalizedPath(root.path)
-        let rows = try db.query("SELECT id, path, sidecar_path FROM photos") { ($0.int(0), $0.string(1), $0.stringOrNil(2)) }
+        let sql = "SELECT id, path, sidecar_path FROM photos" + (mastersOnly ? " WHERE master_id IS NULL" : "")
+        let rows = try db.query(sql) { ($0.int(0), $0.string(1), $0.stringOrNil(2)) }
         return rows.compactMap { row in
             guard Self.path(row.1, isUnderRoot: rootPath),
                   Self.coveringRoot(for: row.1, in: roots)?.id == root.id else { return nil }
@@ -191,7 +193,7 @@ nonisolated extension Catalog {
     /// access to `newPath` (right after the open panel returned it).
     func relinkCheck(root: Root, newPath: String, sampleSize: Int = 200,
                      fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) throws -> RelinkCheck {
-        let photos = try photoPaths(of: root)
+        let photos = try photoPaths(of: root, mastersOnly: true)
         guard !photos.isEmpty else { return RelinkCheck(photoCount: 0, sampled: 0, found: 0, missingExamples: []) }
         let n = min(sampleSize, photos.count)
         var found = 0
@@ -205,7 +207,8 @@ nonisolated extension Catalog {
     }
 
     /// In one transaction: sets the root's path (+ bookmark / display name) to `newPath` and
-    /// rewrites every photo (and sidecar) path under the old root to the new prefix. Posts `.roots`.
+    /// rewrites every photo (and sidecar) path under the old root to the new prefix — virtual
+    /// copies too (they share their master's path). Posts `.roots`.
     @discardableResult
     func relinkRoot(id: Int64, to newPath: String, bookmark: Data?, displayName: String? = nil) throws -> RelinkResult {
         let newRootPath = Self.normalizedPath(newPath)
@@ -218,8 +221,9 @@ nonisolated extension Catalog {
             let photos = try photoPaths(of: root)
             let moving = Set(photos.map(\.id))
             let targets = photos.map { (id: $0.id, path: Self.relinkedPath($0.path, from: oldRootPath, to: newRootPath)) }
-            // A photo outside this root already at a target path would violate UNIQUE(path).
-            let others = Set(try db.query("SELECT id, path FROM photos") { ($0.int(0), $0.string(1)) }
+            // A photo outside this root already at a target path would violate the unique path of
+            // masters (virtual copies share their master's path and move with it).
+            let others = Set(try db.query("SELECT id, path FROM photos WHERE master_id IS NULL") { ($0.int(0), $0.string(1)) }
                 .filter { !moving.contains($0.0) }.map { Self.normalizedPath($0.1) })
             let conflicts = targets.filter { others.contains($0.path) }
             if let first = conflicts.first { throw RelinkError.photoConflicts(conflicts.count, example: first.path) }

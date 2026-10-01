@@ -418,7 +418,7 @@ nonisolated final class ExportJob: @unchecked Sendable {
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return .skipped(.failed("JPEG encoding failed")) }
 
-        let base = (photo.fileName as NSString).deletingPathExtension
+        let base = photo.exportBaseName   // "IMG_1234 (Copy 1)" for a virtual copy
         let written: URL
         do {
             written = try ExportFiles.write(data as Data, named: reserveName(base: base), in: options.destination) { _ in

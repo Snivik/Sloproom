@@ -68,6 +68,7 @@ struct FolderRowView: View {
                 Capsule().fill(Color.accentColor).frame(height: 2).offset(y: dropZone == .after ? 2 : -2)
             }
         }
+        .overlay(alignment: .trailing) { PhotoDropVerbBadge(folderID: node.id) }   // Add / Move / Copy while photos hover
         .badge(model.includeSubfolders && !node.children.isEmpty ? totalCount : directCount)
     }
 
@@ -98,8 +99,9 @@ struct FolderRowView: View {
 
     private var tooltip: String {
         func photos(_ n: Int) -> String { "\(n) photo\(n == 1 ? "" : "s")" }
-        if node.children.isEmpty { return "\(node.folder.name): \(photos(directCount))" }
-        return "\(node.folder.name): \(photos(directCount)) directly, \(photos(totalCount)) including subfolders"
+        let drop = "\nDrop photos to add them (same photo) · ⌘ move · ⌥ virtual copies"
+        if node.children.isEmpty { return "\(node.folder.name): \(photos(directCount))" + drop }
+        return "\(node.folder.name): \(photos(directCount)) directly, \(photos(totalCount)) including subfolders" + drop
     }
 }
 

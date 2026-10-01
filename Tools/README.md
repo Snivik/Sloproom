@@ -109,6 +109,12 @@ Snapshots must also be written inside the container. View them with the Read too
   `toolbar`, `segtips`, `cellsize`, `brushdump` (brush size, cursor radius, stroke radius at the current zoom).
   `key` knows the US key codes of `= - [ ] \ ; ' , . /` and 0-9 (shortcut matching uses the key code), e.g.
   `key cmd+=`, `key cmd+shift+=`, `key cmd+[`, `key ]`.
+  Virtual copies (`VirtualCopies/VirtualCopiesDevScript.swift`): `vc create` (Create Virtual Copy on the targets),
+  `vc copyto <folder>`, `vc newfolder [name]`, `vc find <title>` ("L1090994.DNG" / "L1090994 · Copy 1"), `vc rename <name>`,
+  `vc renamealert`, `vc remove` (no confirmation), `vc removetitle`, `vc dump` (ids, masters, titles, flags, crop, exposure),
+  `vc previews <id>` (preview files on disk), `vc dropverb`, `vc sourcemask` (drag source operation masks),
+  `vc droptest plain|cmd|opt <folder>` (drops the targets on a sidebar folder through SwiftUI's real drop destination with a
+  fake `NSDraggingInfo` — synthetic mouse drags never drop), `vc dragmask` (logs the masks of the next real drag).
   Shortcut rebinding / brush size / thumbnail size write the app's (shared!) UserDefaults: `shortcut resetall` and
   restore `library.cellSize` when you are done.
   Synthesized keys are delivered to the main window, but menu key equivalents only match while the app
@@ -151,6 +157,7 @@ Build from the repo root (engine default set + the extra files listed), run, exp
 | `recentrenders_check` | – | `[dng] [out-dir]` (RecentRenders store/lookup/eviction/stale/purge, Clean Cache, JPEG vs HEIC timings) |
 | `export_check` | `sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[photo-dir] [out-dir]` (default `/private/tmp/claude-501/out-export`; `look/` = downscaled exports + Develop renders) |
 | `shortcuts_check` | `HARNESS_NO_DEFAULT=1`, `sloproom/Shortcuts/ShortcutModel.swift sloproom/Shortcuts/ShortcutStore.swift` | – (defaults, overrides persist, conflicts per scope, resolution, reset, formatting; own UserDefaults suite) |
+| `vcopies_check` | `sloproom/VirtualCopies/{Catalog+VirtualCopies,VirtualCopyPreviews}.swift sloproom/Import/Catalog+Import.swift sloproom/LightroomImport/{RootAccess,LightroomCatalogReader,LightroomImportPlan,Catalog+LightroomImport}.swift sloproom/Export/ExportEngine.swift sloproom/Develop/Crop/CropMath.swift` | `[realistic catalog dir to COPY] [sample.jpg] [out-dir]` (defaults: `…/Data/tmp/vcopies/pristine`, `…/Data/tmp/folders/photos/L1090230.JPG`; schema v2 migration of a fresh v1 + the realistic copy, copies, sorting, import dedupe, relink, removal, preview seeding, export names) |
 
 ## ax_help_audit.swift (tooltips / accessibility labels)
 

@@ -219,6 +219,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
     case pick, unflag, reject, autoAdvance
     case rating0, rating1, rating2, rating3, rating4, rating5
     case copySettings, pasteSettings, beforeAfter
+    case createVirtualCopy
     // View
     case libraryMode, developMode, fullScreenPreview, exitFullScreen, toggleSidePanels, toggleAllPanels
     case zoomToggle, zoomIn, zoomOut, temporaryHand, keyboardShortcuts
@@ -255,6 +256,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .copySettings: return "Copy Settings"
         case .pasteSettings: return "Paste Settings"
         case .beforeAfter: return "Before / After"
+        case .createVirtualCopy: return "Create Virtual Copy"
         case .libraryMode: return "Library"
         case .developMode: return "Develop"
         case .fullScreenPreview: return "Full Screen Preview"
@@ -315,7 +317,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .newFolder, .importPhotos, .importLightroomCatalog, .exportPhotos, .exportCatalog, .importCatalog: return .file
         case .undo, .redo, .selectAllPhotos: return .edit
         case .pick, .unflag, .reject, .autoAdvance, .rating0, .rating1, .rating2, .rating3, .rating4, .rating5,
-             .copySettings, .pasteSettings, .beforeAfter: return .photo
+             .copySettings, .pasteSettings, .beforeAfter, .createVirtualCopy: return .photo
         case .libraryMode, .developMode, .fullScreenPreview, .exitFullScreen, .toggleSidePanels, .toggleAllPanels,
              .zoomToggle, .zoomIn, .zoomOut, .temporaryHand, .keyboardShortcuts: return .view
         case .thumbnailLarger, .thumbnailSmaller, .moveLeft, .moveRight, .moveUp, .moveDown, .openInDevelop,
@@ -374,6 +376,7 @@ nonisolated enum ShortcutAction: String, CaseIterable, Sendable, Identifiable {
         case .copySettings: return KeyCombo("c", [.command, .shift])
         case .pasteSettings: return KeyCombo("v", [.command, .shift])
         case .beforeAfter: return KeyCombo("\\")
+        case .createVirtualCopy: return KeyCombo("'", .command)
         case .libraryMode: return KeyCombo("g")
         case .developMode: return KeyCombo("d")
         case .fullScreenPreview: return KeyCombo("f")
