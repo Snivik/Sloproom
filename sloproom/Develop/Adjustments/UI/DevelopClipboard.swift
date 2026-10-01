@@ -2,9 +2,12 @@
 //  DevelopClipboard.swift
 //  sloproom
 //
-//  Copy Settings / Paste Settings (⇧⌘C / ⇧⌘V) between photos. Copies the global adjustments
-//  (white balance, tone, presence, color mixer, effects); crop/geometry and masks are excluded
-//  and the target keeps its own. In Library mode, paste applies to every selected photo.
+//  Copy Settings / Paste Settings (⇧⌘C / ⇧⌘V) between photos — registry actions of the photo
+//  actions primitive (Actions/PhotoActions.swift): Copy (one photo) copies ALL its settings;
+//  Paste (one or more photos) applies the sections chosen in "Choose Settings to Paste…"
+//  (`pasteSections`, remembered; default: white balance, tone, presence, color mixer, effects —
+//  crop/geometry and masks excluded, the target keeps its own). Pasting onto several photos is
+//  a bulk edit (one undo step); onto the photo open in Develop, one Develop undo step.
 //
 
 import Foundation
@@ -12,21 +15,31 @@ import Foundation
 enum DevelopClipboard {
     /// The last copied settings (in-app only; not the system pasteboard).
     static var copied: EditSettings?
+    /// Title of the photo they were copied from (shown by "Choose Settings to Paste…").
+    static var copiedFrom: String?
 
-    /// `source`'s global adjustments on top of `target`'s geometry and masks.
+    static let pasteSectionsKey = "actions.pasteSections"
+
+    /// Sections Paste Settings applies (Choose Settings to Paste… changes them).
+    static var pasteSections: Set<EditSection> {
+        get { EditSection.decode(UserDefaults.standard.string(forKey: pasteSectionsKey)) ?? EditSection.pasteDefault }
+        set { UserDefaults.standard.set(EditSection.encode(newValue), forKey: pasteSectionsKey) }
+    }
+
+    static func copy(_ settings: EditSettings, from photo: Photo) {
+        copied = settings
+        copiedFrom = photo.displayTitle
+    }
+
+    /// `source`'s chosen sections on top of `target` (default: global adjustments; the target
+    /// keeps its geometry and masks).
     static func merge(_ source: EditSettings, into target: EditSettings) -> EditSettings {
-        var out = target
-        out.whiteBalance = source.whiteBalance
-        out.tone = source.tone
-        out.presence = source.presence
-        out.colorMixer = source.colorMixer
-        out.effects = source.effects
-        return out
+        target.replacing(pasteSections, from: source)
     }
 }
 
 extension DevelopSession {
-    func copySettings() { DevelopClipboard.copied = settings }
+    func copySettings() { DevelopClipboard.copy(settings, from: photo) }
 
     /// Undoable.
     func pasteSettings() {
@@ -40,26 +53,9 @@ extension DevelopSession {
 extension AppModel {
     var canPasteDevelopSettings: Bool { DevelopClipboard.copied != nil }
 
-    /// Develop: the open photo. Library: the focused photo.
-    func copyDevelopSettings() {
-        if mode == .develop, let session = developSession { session.copySettings(); return }
-        if let photo = focusedPhoto { DevelopClipboard.copied = photo.editSettings }
-    }
+    /// Photo > Copy Settings (registry action: one target).
+    func copyDevelopSettings() { PhotoActions.performFromMenu(.copySettings, model: self) }
 
-    /// Develop: the open photo (undoable). Library: every selected photo (written to the catalog).
-    func pasteDevelopSettings() {
-        guard let copied = DevelopClipboard.copied else { return }
-        if mode == .develop, let session = developSession { session.pasteSettings(); return }
-        let targets = actionTargetIDs.compactMap { photo(id: $0) }
-        guard !targets.isEmpty else { return }
-        let catalog = catalog
-        let edits = targets.map { ($0.id, DevelopClipboard.merge(copied, into: $0.editSettings)) }
-        Task.detached(priority: .userInitiated) {
-            do {
-                for (id, settings) in edits { _ = try catalog.saveEditSettings(settings, for: id) }
-            } catch {
-                await MainActor.run { self.report(error) }
-            }
-        }
-    }
+    /// Photo > Paste Settings (registry action: the action targets; one undo step).
+    func pasteDevelopSettings() { PhotoActions.performFromMenu(.pasteSettings, model: self) }
 }

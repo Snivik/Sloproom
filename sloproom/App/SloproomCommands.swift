@@ -18,6 +18,9 @@ struct SloproomCommands: Commands {
     /// push a changed key equivalent into an existing NSMenuItem though; `ShortcutMenuSync`
     /// patches the items.
     @AppStorage(ShortcutStore.revisionKey) private var shortcutRevision = 0
+    /// Number of action targets (Export's focused scene value): enables the Photo menu's
+    /// single / multi actions without re-rendering Commands from AppModel.
+    @FocusedValue(\.exportTargetCount) private var targetCount
 
     var body: some Commands {
         let _ = shortcutRevision
@@ -30,12 +33,10 @@ struct SloproomCommands: Commands {
         }
 
         CommandGroup(replacing: .undoRedo) {
-            ShortcutMenuButton(.undo) {
-                if model.mode == .develop, let s = model.developSession { s.undo() } else { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
-            }
-            ShortcutMenuButton(.redo) {
-                if model.mode == .develop, let s = model.developSession { s.redo() } else { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
-            }
+            // Develop session steps and bulk-edit steps (Actions/BulkEditor.swift), newest first;
+            // otherwise the responder chain as before.
+            ShortcutMenuButton(.undo) { BulkEditUndo.shared.undo(model: model) }
+            ShortcutMenuButton(.redo) { BulkEditUndo.shared.redo(model: model) }
         }
 
         CommandGroup(after: .textEditing) {
@@ -62,26 +63,9 @@ struct SloproomCommands: Commands {
         }
     }
 
-    @ViewBuilder private var photoMenu: some View {
-        ShortcutMenuButton(.pick) { FlagActions.setFlag(.pick, model: model) }
-        ShortcutMenuButton(.unflag) { FlagActions.setFlag(.none, model: model) }
-        ShortcutMenuButton(.reject) { FlagActions.setFlag(.reject, model: model) }
-        AutoAdvanceToggle()
-        Divider()
-        Menu("Set Rating") {
-            ForEach(0...5, id: \.self) { stars in
-                ShortcutMenuButton(.rating(stars), title: stars == 0 ? "None" : String(repeating: "★", count: stars)) {
-                    model.setRating(stars)
-                }
-            }
-        }
-        Divider()
-        ShortcutMenuButton(.copySettings) { model.copyDevelopSettings() }
-        ShortcutMenuButton(.pasteSettings) { model.pasteDevelopSettings() }
-        ShortcutMenuButton(.beforeAfter) { model.developSession?.showBefore.toggle() }
-        Divider()
-        ShortcutMenuButton(.createVirtualCopy) { VirtualCopyActions.createFromMenu(model: model) }   // VirtualCopies/
-        Button("Rename Virtual Copy…") { VirtualCopyActions.requestRename(model.actionTargetIDs, model: model) }
+    /// Built from the photo actions registry (Actions/PhotoActionMenus.swift).
+    private var photoMenu: some View {
+        PhotoMenuBarItems(model: model, targetCount: targetCount)
     }
 }
 

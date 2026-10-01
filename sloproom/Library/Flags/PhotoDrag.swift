@@ -5,12 +5,22 @@
 //  Photo drag source shared by the Library grid and the Develop filmstrip: the payload is
 //  `SloproomDragPayload.photos` (dropped on sidebar folders by `FolderRowDropDelegate`,
 //  ⌘ = move out of the shown folder, ⌥ = virtual copies: `PhotoDropVerb`). Dragging a selected
-//  photo drags the whole selection.
+//  photo drags the whole selection. Dragged out of the app (Finder…) the item is the file URL of
+//  the original under the pointer.
 //
 
 import SwiftUI
 
 enum PhotoDrag {
+    /// Operations the grid / filmstrip drag source offers (`.dragConfiguration`). SwiftUI's
+    /// `onDrag` alone offers only copy, which AppKit's modifier handling can mask out (⌘ = move);
+    /// the folder drop verbs (PhotoDropVerb) propose alias / move / copy.
+    static var operations: DragConfiguration {
+        var within = DragConfiguration.OperationsWithinApp(allowCopy: true, allowMove: true)
+        within.allowAlias = true
+        return DragConfiguration(operationsWithinApp: within, operationsOutsideApp: .init(allowCopy: true))
+    }
+
     /// Ids dragged when the drag starts on `photo`: the whole selection (list order) if `photo`
     /// is selected, else just `photo` — which the grid also selects (`selectUnselected`); the
     /// filmstrip leaves the selection alone so a drag doesn't switch the photo in Develop.
@@ -21,13 +31,15 @@ enum PhotoDrag {
     }
 
     static func provider(for photo: Photo, model: AppModel, selectUnselected: Bool) -> NSItemProvider {
-        #if DEBUG
         let ids = ids(for: photo, model: model, selectUnselected: selectUnselected)
+        #if DEBUG
         print("PhotoDrag: start \(ids.count) photo(s) from \(photo.fileName)")
-        return SloproomDrag.provider(.photos(ids))
-        #else
-        return SloproomDrag.provider(.photos(ids(for: photo, model: model, selectUnselected: selectUnselected)))
         #endif
+        let provider = SloproomDrag.provider(.photos(ids))
+        // Outside the app (Finder, Mail…): the original file of the photo under the pointer
+        // (copy only). In-app drops read the plain-text payload registered first.
+        provider.registerObject(photo.url as NSURL, visibility: .all)
+        return provider
     }
 
     /// Small thumbnail with the number of dragged photos.
