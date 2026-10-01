@@ -75,7 +75,7 @@ struct LibraryGridView: View {
                 }
                 .padding(padding)
             }
-            .dragConfiguration(PhotoDrag.operations)
+            .photoDragOperations()
             .focusable()
             .focused($isGridFocused)
             .focusEffectDisabled()

@@ -46,7 +46,7 @@ struct FilmstripView: View {
                 .padding(.horizontal, 6)
             }
             .frame(height: Self.height)
-            .dragConfiguration(PhotoDrag.operations)
+            .photoDragOperations()
             .background(.bar)
             .onAppear { if let id = model.focusedPhotoID { proxy.scrollTo(id, anchor: .center) } }
             // Minimal scroll (no anchor): clicking a visible photo never moves the strip under the

@@ -32,7 +32,7 @@ enum PhotoDropVerb: String, CaseIterable {
 
     var operation: DropOperation {
         switch self {
-        case .add: .alias
+        case .add: if #available(macOS 26.0, *) { .alias } else { .copy }
         case .move: .move
         case .copy: .copy
         }

@@ -11,10 +11,22 @@
 
 import SwiftUI
 
+extension View {
+    /// `PhotoDrag.operations` on macOS 26+; older systems keep SwiftUI's copy-only drag source
+    /// (⌘-drag then can't move, plain and ⌥ drags still work).
+    func photoDragOperations() -> some View {
+        if #available(macOS 26.0, *) {
+            return AnyView(dragConfiguration(PhotoDrag.operations))
+        }
+        return AnyView(self)
+    }
+}
+
 enum PhotoDrag {
     /// Operations the grid / filmstrip drag source offers (`.dragConfiguration`). SwiftUI's
     /// `onDrag` alone offers only copy, which AppKit's modifier handling can mask out (⌘ = move);
     /// the folder drop verbs (PhotoDropVerb) propose alias / move / copy.
+    @available(macOS 26.0, *)
     static var operations: DragConfiguration {
         var within = DragConfiguration.OperationsWithinApp(allowCopy: true, allowMove: true)
         within.allowAlias = true
