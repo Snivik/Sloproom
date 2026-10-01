@@ -231,6 +231,7 @@ nonisolated final class Catalog: @unchecked Sendable {
     private func migrate() throws {
         let current = Int(try db.scalarInt("PRAGMA user_version") ?? 0)
         guard current < Self.migrations.count else { return }
+        if current > 0 { try backUpBeforeMigration(from: current) }
         try db.execute("PRAGMA foreign_keys=OFF")
         defer { try? db.execute("PRAGMA foreign_keys=ON") }
         try db.transaction {
@@ -244,6 +245,19 @@ nonisolated final class Catalog: @unchecked Sendable {
             }
             try db.execute("PRAGMA user_version = \(Self.migrations.count)")
         }
+    }
+
+    /// Snapshot of an existing catalog before upgrading its schema:
+    /// `Backups/Catalog-before-v<N>-YYYYMMDD-HHMMSS.sqlite` (VACUUM INTO can't run in a transaction).
+    private func backUpBeforeMigration(from version: Int) throws {
+        let backups = catalogDirectory.appendingPathComponent("Backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyyMMdd-HHmmss"
+        let url = backups.appendingPathComponent("Catalog-before-v\(Self.migrations.count)-\(stamp.string(from: Date())).sqlite")
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        try db.execute("VACUUM INTO '\(url.path.replacingOccurrences(of: "'", with: "''"))'")
     }
 
     /// Idempotently applies a feature-owned migration identified by a unique `name`

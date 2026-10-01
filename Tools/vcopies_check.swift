@@ -163,6 +163,14 @@ struct VirtualCopiesCheck {
             return try fingerprint(db)
         }()
         let catalog = try time("open + migrate v1 → v\(Catalog.schemaVersion)") { try Catalog.open(at: dir) }
+        let backups = (try? FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("Backups").path)) ?? []
+        let backup = backups.first { $0.hasPrefix("Catalog-before-v\(Catalog.schemaVersion)-") }
+        check(backup != nil, "pre-migration backup written (\(backup ?? "none"))")
+        if let backup {
+            let db = try SQLiteDatabase(path: dir.appendingPathComponent("Backups").appendingPathComponent(backup).path)
+            check(try fingerprint(db).photos == before.photos && (try db.scalarInt("PRAGMA user_version")) == 1, "backup is the untouched v1 catalog")
+            db.close()
+        }
         let after = try fingerprint(catalog.db)
         check(after.photos == before.photos, "photos identical (ids, paths, flags, ratings, edits, versions) — \(after.photos.count) rows")
         check(after.members == before.members, "folder memberships identical (\(after.members.count))")
