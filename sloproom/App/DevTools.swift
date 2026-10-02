@@ -104,7 +104,7 @@ enum DevTools {
 ///   import… (see Import/ImportDevCommands.swift)
 ///   straighten <deg> | aspect <w>:<h>|original|custom|preset <name> | rotate left|right | crop commit|cancel|swap
 /// Example:
-///   SLOPROOM_CATALOG_DIR=/tmp/cat SLOPROOM_DEV_SCRIPT="wait 3; snapshot /tmp/a.png; quit" sloproom.app/Contents/MacOS/sloproom
+///   SLOPROOM_CATALOG_DIR=/tmp/cat SLOPROOM_DEV_SCRIPT="wait 3; snapshot /tmp/a.png; quit" Sloproom.app/Contents/MacOS/Sloproom
 enum DevScript {
     static func runIfRequested(model: AppModel) {
         guard let script = ProcessInfo.processInfo.environment["SLOPROOM_DEV_SCRIPT"], !script.isEmpty else { return }

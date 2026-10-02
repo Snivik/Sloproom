@@ -33,6 +33,8 @@ final class FolderSidebarState {
     /// Folder whose name is being edited inline in the sidebar.
     var renamingFolderID: Int64?
     var pendingDeletion: PendingFolderDeletion?
+    /// A just-created folder the sidebar should scroll to once it appears in `model.folders`.
+    var scrollTarget: Int64?
 
     private init() {
         let stored = UserDefaults.standard.array(forKey: Self.expandedKey) as? [Int] ?? []

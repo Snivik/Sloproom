@@ -51,7 +51,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project slo
 
 SLOPROOM_CATALOG_DIR=$C/cat \
 SLOPROOM_DEV_SCRIPT="wait 3; snapshot $C/lib.png; select 0; mode develop; wait 4; exposure 1; wait 2; snapshot $C/dev.png; quit" \
-  /private/tmp/claude-501/dd-<you>/Build/Products/Debug/sloproom.app/Contents/MacOS/sloproom &
+  /private/tmp/claude-501/dd-<you>/Build/Products/Debug/Sloproom.app/Contents/MacOS/Sloproom &
 ```
 (no `timeout` binary on macOS: background it and kill it after ~60s if it hasn't quit.)
 Snapshots must also be written inside the container. View them with the Read tool.

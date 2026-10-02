@@ -76,6 +76,7 @@ enum FolderActions {
             if !photoIDs.isEmpty { try catalog.addPhotos(photoIDs, toFolder: id) }
             if let parentID { state.reveal(parentID, in: model.folders) }
             state.renamingFolderID = id
+            state.scrollTarget = id
             return id
         } catch {
             model.report(error)

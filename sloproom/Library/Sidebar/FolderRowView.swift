@@ -19,12 +19,14 @@ struct FolderOutline: View {
             if node.children.isEmpty {
                 FolderRowView(node: node, counts: counts)
                     .tag(SidebarItem.folder(node.id))
+                    .id(SidebarItem.folder(node.id))
             } else {
                 DisclosureGroup(isExpanded: FolderSidebarState.shared.expansionBinding(node.id)) {
                     FolderOutline(nodes: node.children, counts: counts)
                 } label: {
                     FolderRowView(node: node, counts: counts)
                         .tag(SidebarItem.folder(node.id))
+                        .id(SidebarItem.folder(node.id))
                 }
             }
         }
